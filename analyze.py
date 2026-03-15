@@ -551,7 +551,7 @@ def add_insight_box(ax, lines, loc="upper center"):
     }
     x, y, ha, va = positions[loc]
     ax.text(x, y, text, transform=ax.transAxes, fontsize=9.5,
-            va=va, ha=ha, family="sans-serif", zorder=10,
+            va=va, ha=ha, multialignment="left", family="sans-serif", zorder=10,
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc",
                       alpha=0.92))
 
@@ -563,11 +563,11 @@ def add_direction_arrow(ax, direction="up", x=0.06):
     else:
         xy, xytext = (x, 0.35), (x, 0.55)
     ax.annotate("", xy=xy, xytext=xytext, xycoords="axes fraction",
-                arrowprops=dict(arrowstyle="-|>", color="#888888", lw=2))
+                arrowprops=dict(arrowstyle="-|>", color="black", lw=2))
     label_y = 0.57 if direction == "up" else 0.30
     label_va = "bottom" if direction == "up" else "top"
     ax.text(x, label_y, "Better", transform=ax.transAxes, fontsize=9,
-            ha="center", va=label_va, color="#888888", style="italic")
+            ha="center", va=label_va, color="black", style="italic")
 
 
 def series_pct_change(dates, values, years_back=2):
@@ -683,7 +683,7 @@ def chart_open_prs_comparison(all_series, output_dir):
     add_insight_box(ax, [
         "PR backlogs rise over time in every repo — a universal pattern",
         "vscode's 3x jump in 2022 was a workflow change to smaller PRs,\n  not team growth — same ~175 authors making 3x more PRs",
-        "rust's high open PR count reflects rigorous review culture\n  — many PRs await RFC or crater run results for weeks",
+        "rust's high open PR count reflects rigorous review culture\n  — many PRs await RFC review or validation results for weeks",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_comparison.png")
@@ -739,6 +739,7 @@ def chart_net_flow_comparison(all_series, output_dir):
     lines = [
         "All repos oscillate near zero — none losing ground long-term",
         "Dips below zero often precede releases (focused triage sprints)",
+        "vscode shows regular December dips — annual housekeeping triage\n  closes thousands of stale issues each year-end",
         "go stays flattest — disciplined triage keeps open/close rates balanced",
     ]
     add_insight_box(ax, lines)
@@ -776,7 +777,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
         "dotnet repos dip each Nov — freeze before annual .NET release",
         "runtime merge rate declining since late 2024 — likely driven\n  by ~10% drop in active maintainers over same period",
         "vscode 3x jump mid-2022 was workflow shift to smaller PRs,\n  not a staffing increase (same ~175 authors)",
-        "rust's steady ~250/wk despite volunteer governance is remarkable",
+        "rust's steady ~250/wk powered by bors merge bot — 98% of merges\n  automated, removing human bottleneck from the merge step",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
@@ -960,6 +961,7 @@ def chart_sustainability_score(all_series, output_dir):
     add_insight_box(ax, [
         "Ratio >100% means closing more than opening (shrinking backlog)",
         "runtime rose to ~115% in 2025 despite fewer maintainers — driven\n  by falling issue inflow (maturing product) not faster triage",
+        "roslyn spikes (~2022-Q4, 2024-Q4, 2025-Q4) are deliberate stale issue\n  housekeeping — bulk-closing old Area-IDE issues (avg age 3-5 years)",
         "Most repos hover near 100% — roughly keeping pace",
     ])
     fig.tight_layout()
@@ -1074,8 +1076,9 @@ def chart_open_pr_age(all_items, output_dir):
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Complements TTM — TTM shows merged PRs, this shows the unmerged backlog",
-        "roslyn's rising age driven by ~630 stale PRs (68% over 1yr old)\n  — a few prolific authors account for most of them",
-        "maui's high age reflects long-lived partner/community PRs in queue",
+        "roslyn's rising age driven by ~630 stale PRs (68% over 1yr old)\n  — mostly maintainer PRs (66%), not abandoned community work",
+        "vscode age dropping recently — team actively closing old PRs",
+        "maui's high age reflects long-lived Syncfusion/partner PRs in queue",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_pr_age.png")
@@ -1108,7 +1111,7 @@ def chart_active_maintainers(all_maint, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "runtime maintainers dropped significantly since 2023\n  — may reflect team changes post-.NET 9",
+        "runtime maintainers dropping since late 2023 (.NET 8 timeframe)\n  — may reflect org restructuring or natural attrition",
         "vscode steadily growing — largest maintainer pool by far",
         "maui volatile — tiny team (6-11 people), sensitive to individual changes",
     ])
@@ -1144,7 +1147,6 @@ def chart_prs_per_maintainer(all_maint, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "Higher = more throughput per person (or fewer maintainers stretched thin)",
         "maui: 2-3 people merge nearly all PRs (rmarinho ~50%)",
         "vscode maintainers handle ~2x the PR volume of dotnet repos",
     ])
@@ -1219,7 +1221,7 @@ def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Rising = fewer maintainers responsible for more issues",
+        "Across all repos, issues per maintainer trend upward over time\n  — issue backlogs grow faster than teams do",
         "runtime burden growing — maintainer count dropped while issues held steady",
         "vscode's large team keeps per-person load relatively flat",
     ])
@@ -1266,7 +1268,7 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Rising = each reviewer has more PRs queued for attention",
+        "Same upward trend as issues per maintainer — maintainer\n  workload is increasing across all repos",
         "maui's tiny merge team (2-3 people) drives high per-person load",
         "roslyn rising sharply — 630+ open PRs (68% over 1yr old),\n  stale community PRs accumulating without being closed",
     ])
@@ -1324,7 +1326,8 @@ def chart_contributor_diversity(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "runtime community PR authors declining ~30% since 2022\n  — correlates with falling issue openers (maturing product)",
+        "runtime community authors declining ~22% but PR volume held steady\n  — fewer people contributing more each (7.4 to 8.8 PRs/person)",
+        "maui jumped mid-2024 — ~22 Syncfusion engineers began dedicated\n  contributions (74% of community PRs since Aug 2024)",
         "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)",
         "rust has broadest contributor base despite niche language",
     ])
@@ -1397,7 +1400,8 @@ def chart_issue_community(all_items, output_dir):
     add_insight_box(ax, [
         "Excludes maintainers — shows external community engagement only",
         "vscode dominates due to massive user base reporting bugs",
-        "Trends here reflect product adoption more than dev community size",
+        "runtime/maui declining — likely product maturation (fewer novel bugs)\n  and better self-service (docs, Stack Overflow, Discord)",
+        "Could also signal community disengagement if issues feel ignored\n  — open backlog % is rising (runtime 14% to 30% since 2022)\n  though initial turnaround has held steady",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "issue_community_comparison.png")
@@ -1456,7 +1460,7 @@ def chart_community_issue_volume(all_items, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "runtime volume declining since 2022 — but community share is rising\n  (55% to 62%) — fewer total issues as platform matures",
+        "runtime volume declining since 2022 — but community share of new issues\n  is rising (55% to 62%) as team files fewer issues",
         "vscode volume tracks product adoption — dwarfs all other repos",
         "Declining volume + rising community % = healthy maturation pattern",
     ])
@@ -1524,9 +1528,8 @@ def chart_community_issue_share(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "Rising share = community becoming a larger voice in the project",
         "runtime share rising (53% to 62%) even as volume drops\n  — team filing fewer issues, community holding steady",
-        "maui near 90% — overwhelmingly community-driven issue tracker",
+        "maui near 90% — UI framework hits many device/platform edge cases;\n  community issues are 88% bug reports vs 11% feature requests",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_share.png")
@@ -1592,7 +1595,8 @@ def chart_community_pr_share(all_items, output_dir):
     add_insight_box(ax, [
         "vscode ~92% community PRs — almost entirely external contributors",
         "runtime ~70% community — healthy mix of team + external",
-        "Copilot PRs attributed to human requester (not inflating community %)",
+        "maui community share surged mid-2024 with Syncfusion partnership\n  — 22 dedicated engineers now contributing regularly",
+        "rust near 100% is misleading — bors bot merges all PRs, so only\n  34 accounts detected as maintainers vs ~6,200 actual contributors",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pr_share.png")
@@ -1604,41 +1608,51 @@ def chart_community_pr_share(all_items, output_dir):
 COPILOT_AUTHORS = {"copilot-swe-agent[bot]", "Copilot"}
 
 def chart_copilot_adoption(all_items, output_dir):
-    """Copilot-authored PRs as % of all PRs per month, per repo."""
+    """Copilot-authored PRs as % of all PRs, weekly with 2-week smoothing."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot PRs as % of All PRs (Monthly)", "% of PRs")
+    setup_axes(ax, "Copilot PRs as % of All PRs (2-week avg)", "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     line_ends = []
     for repo, items in all_items.items():
-        total_by_month = defaultdict(int)
-        copilot_by_month = defaultdict(int)
+        total_by_week = defaultdict(int)
+        copilot_by_week = defaultdict(int)
         for item in items:
             if not item["is_pr"]:
                 continue
             cd = parse_date(item["created_at"])
             if not cd:
                 continue
-            month = cd.replace(day=1)
+            # ISO week start (Monday)
+            week = cd - timedelta(days=cd.weekday())
             author = item.get("author") or ""
-            total_by_month[month] += 1
+            total_by_week[week] += 1
             if author in COPILOT_AUTHORS:
-                copilot_by_month[month] += 1
+                copilot_by_week[week] += 1
 
-        if not total_by_month:
+        if not total_by_week:
             continue
-        months = sorted(total_by_month.keys())
-        # Only show months where Copilot existed (2024+)
-        months = [m for m in months if m.year >= 2024]
-        if not months:
+        weeks = sorted(total_by_week.keys())
+        # Only show weeks where Copilot existed (2024+)
+        weeks = [w for w in weeks if w.year >= 2024]
+        if not weeks:
             continue
-        pcts = [100.0 * copilot_by_month.get(m, 0) / total_by_month[m]
-                for m in months]
-        smoothed = smooth(pcts, 1)
-        ax.plot(months, smoothed,
+        # Drop last week if it's partial (less than 7 days old)
+        from datetime import date as _date
+        today = _date.today()
+        if (today - weeks[-1]).days < 7:
+            weeks = weeks[:-1]
+        if not weeks:
+            continue
+        pcts = [100.0 * copilot_by_week.get(w, 0) / total_by_week[w]
+                if total_by_week[w] >= 5 else None for w in weeks]
+        # Fill None with 0 for smoothing
+        pcts_clean = [p if p is not None else 0.0 for p in pcts]
+        smoothed = smooth(pcts_clean, 2)
+        ax.plot(weeks, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=2, alpha=0.85)
-        line_ends.append((months, smoothed, get_short(repo), get_color(repo)))
+        line_ends.append((weeks, smoothed, get_short(repo), get_color(repo)))
 
     ax.set_ylim(0, None)
     ax.legend(loc="upper left", fontsize=10)
@@ -1659,7 +1673,7 @@ def chart_copilot_adoption(all_items, output_dir):
 def chart_issue_close_rate(all_series, output_dir):
     """Percentage of issues closed within 30 days of opening, by month."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Issue Responsiveness (% Closed Within 30 Days, 6-month avg)",
+    setup_axes(ax, "Issue Turnaround (% Closed Within 30 Days, 6-month avg)",
                "% Closed <30d")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
@@ -1710,7 +1724,7 @@ def chart_issue_close_rate(all_series, output_dir):
     add_insight_box(ax, [
         "vscode closes ~60% within 30 days — aggressive bot-assisted triage",
         "go historically most responsive — small focused team",
-        "runtime improved sharply after 2020 repo consolidation",
+        "runtime starts at 2020 (pre-merge data unreliable) — has held\n  steady at ~40-50%, respectable for its issue volume",
     ])
     if LINEAGE_CUTOFF:
         cutoff_names = ", ".join(get_short(r) for r in LINEAGE_CUTOFF)
@@ -1728,7 +1742,7 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
     """Issue responsiveness for community-filed issues only.
     Community = anyone who has never merged a PR in that repo."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Community Issue Responsiveness (% Closed Within 30 Days, 6-month avg)",
+    setup_axes(ax, "Community Issue Turnaround (% Closed Within 30 Days, 6-month avg)",
                "% Closed <30d")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
@@ -1785,9 +1799,10 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "Most repos hold steady over time — community response quality is consistent",
+        "Most repos hold steady over time — community turnaround is consistent",
+        "runtime holding steady despite fewer maintainers — sustainable so far",
         "aspire and maui recently declining — possible team bandwidth pressure",
-        "Lower than overall responsiveness — team issues always get faster triage",
+        "Lower than overall turnaround — team issues always get faster triage",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_responsiveness_comparison.png")
@@ -1867,9 +1882,9 @@ def chart_community_time_to_close(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "roslyn dwarfs others — likely driven by long-lived language feature\n  proposals and complex compiler bugs needing deep expertise",
+        "CAUTION: recent decline is survivorship bias — slow-to-close issues\n  from recent years haven't closed yet (2025: 29% still open vs 7% for 2020)",
+        "roslyn dwarfs others — confirmed by label data: feature requests\n  take 248d median vs 70d for bugs (p75 is 3 years vs 1.9 years)",
         "go and rust will appear once issue author backfill completes",
-        "Rising trend = community losing patience waiting for resolution",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
@@ -1956,8 +1971,7 @@ def chart_community_issue_age(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Rising = community issues piling up unanswered",
-        "Falling = team is actively working down the community backlog",
+        "Shows staleness of unresolved community issue backlog",
         "go's flat line is partial data (author backfill incomplete past 2015)",
     ])
     fig.tight_layout()
