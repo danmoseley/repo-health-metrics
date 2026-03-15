@@ -1198,6 +1198,69 @@ def chart_contributor_diversity(all_items, output_dir):
     print(f"  {path}")
 
 
+def chart_issue_community(all_items, output_dir):
+    """Distinct issue openers per month (2-month rolling window) — measures community breadth via issues."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Active Issue Community (Distinct Issue Openers, 2-Month Window, 6-month avg)",
+               "Unique Openers")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    visible_data = []
+    line_ends = []
+    has_data = False
+    for repo, items in all_items.items():
+        authors_by_month = defaultdict(set)
+        for item in items:
+            if item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            author = item.get("author")
+            if not cd or not author:
+                continue
+            authors_by_month[cd.replace(day=1)].add(author)
+
+        if not authors_by_month:
+            continue
+        months = sorted(authors_by_month.keys())
+        counts = []
+        for i, m in enumerate(months):
+            window_authors = set(authors_by_month[m])
+            if i > 0:
+                prev = months[i - 1]
+                prev_diff = (m.year - prev.year) * 12 + (m.month - prev.month)
+                if prev_diff == 1:
+                    window_authors |= authors_by_month[prev]
+            counts.append(len(window_authors))
+
+        s = smooth(counts, 6)
+        ax.plot(months, s,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((months, s, get_short(repo), get_color(repo)))
+        has_data = True
+
+    if not has_data:
+        plt.close(fig)
+        print("  (skipping issue community chart — no issue author data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Much larger pool than PR authors — most contributors file issues only",
+        "vscode dominates due to massive user base reporting bugs",
+        "Trends here reflect product adoption more than dev community size",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "issue_community_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 COPILOT_AUTHORS = {"copilot-swe-agent[bot]", "Copilot"}
 
 def chart_copilot_adoption(all_items, output_dir):
@@ -1486,6 +1549,7 @@ def main():
             chart_open_prs_per_maintainer(all_series, all_maint, output_dir)
             chart_contributor_diversity(all_items, output_dir)
             chart_copilot_adoption(all_items, output_dir)
+            chart_issue_community(all_items, output_dir)
             chart_community_responsiveness(all_items, all_maint, output_dir)
         else:
             print("  (skipping maintainer charts — no author/merged_by data yet)")
