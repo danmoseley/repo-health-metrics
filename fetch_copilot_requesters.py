@@ -22,9 +22,12 @@ def run_graphql(query):
 
 def main():
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("ALTER TABLE items ADD COLUMN copilot_requester TEXT")
-    conn.commit()
-    print("Added copilot_requester column")
+    try:
+        conn.execute("ALTER TABLE items ADD COLUMN copilot_requester TEXT")
+        conn.commit()
+        print("Added copilot_requester column")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
     # Find all Copilot-authored PRs
     rows = conn.execute(

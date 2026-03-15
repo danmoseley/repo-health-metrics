@@ -15,6 +15,11 @@
   .toc-col a:hover { text-decoration: underline; }
   .toc-col .section { font-weight: bold; margin-top: 10px; display: block; }
   .toc-col .section:first-child { margin-top: 0; }
+  .key-findings { background: #fff8e1; padding: 16px 24px; border-radius: 6px; margin-bottom: 30px; border-left: 4px solid #f9a825; }
+  .key-findings h2 { color: #e65100; border: none; margin: 0 0 10px 0; padding: 0; font-size: 18px; }
+  .key-findings ul { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; color: #333; }
+  .key-findings li { margin-bottom: 4px; }
+  .key-findings .tag { font-weight: bold; color: #555; }
 </style>
 </head>
 <body>
@@ -59,6 +64,20 @@
     <a href="#dash-rust">rust</a>
     <a href="#dash-go">go</a>
   </div>
+</div>
+
+<div class="key-findings">
+  <h2>Key Findings for dotnet</h2>
+  <ul>
+    <li><span class="tag">Maintainer squeeze:</span> Across all dotnet repos, open issues and PRs per maintainer are rising. runtime lost ~20% of active maintainers since late 2023, yet workload hasn't shrunk proportionally.</li>
+    <li><span class="tag">Community is concentrating:</span> runtime community PR authors dropped ~22%, but PR volume held steady — fewer people contributing more each (7.4 → 8.8 PRs/person). The remaining contributors are more committed, but the funnel is narrowing.</li>
+    <li><span class="tag">maui Syncfusion effect:</span> 22 Syncfusion engineers began contributing mid-2024, now accounting for 74% of community PRs. Community health metrics for maui are heavily dependent on this single partnership.</li>
+    <li><span class="tag">roslyn stale backlog:</span> 630+ open PRs (68% over 1 year old), mostly from maintainers not community. Periodic bulk issue closures (2022, 2024, 2025) mask the growing backlog in close ratio charts.</li>
+    <li><span class="tag">Issue turnaround holding:</span> Despite fewer maintainers, runtime's community issue turnaround (~50% closed within 30 days) has held steady since 2020. But the open backlog % is creeping up (14% → 30% still open).</li>
+    <li><span class="tag">Copilot adoption accelerating:</span> runtime is the most aggressive adopter of Copilot SWE Agent PRs among dotnet repos, with rapid month-over-month growth across all four repos.</li>
+    <li><span class="tag">Community issue openers declining:</span> runtime and maui both see fewer distinct community issue openers, likely reflecting product maturation — but could also signal disengagement if the open backlog keeps growing.</li>
+    <li><span class="tag">How dotnet compares:</span> vscode has 2× the maintainer pool and closes 60% of issues within 30 days. rust merges ~160 PRs/week via automated bors bot with 1,000+ contributors. dotnet repos are healthy but less automated and more maintainer-constrained than peers.</li>
+  </ul>
 </div>
 
 <h2 id="comparison">Comparison Charts</h2>
