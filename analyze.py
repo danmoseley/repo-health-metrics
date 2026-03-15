@@ -597,7 +597,7 @@ def chart_open_issues_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        s = smooth(series["open_issues"], window=4)
+        s = smooth(series["open_issues"], window=26)
         ax.plot(series["weeks"], s,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -613,7 +613,7 @@ def chart_open_issues_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        s = smooth(series["open_issues"], window=4)
+        s = smooth(series["open_issues"], window=26)
         r = series_pct_change(series["weeks"], s, years_back=3)
         if r:
             direction = "up" if r[0] > 0 else "down"
@@ -639,7 +639,7 @@ def chart_open_prs_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        s = smooth(series["open_prs"], window=13)
+        s = smooth(series["open_prs"], window=26)
         ax.plot(series["weeks"], s,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -655,7 +655,7 @@ def chart_open_prs_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        s = smooth(series["open_prs"], window=13)
+        s = smooth(series["open_prs"], window=26)
         r = series_pct_change(series["weeks"], s, years_back=3)
         if r:
             direction = "up" if r[0] > 0 else "down"
@@ -916,7 +916,7 @@ def chart_sustainability_score(all_series, output_dir):
 def chart_time_to_merge(all_ttm, output_dir):
     """Median time-to-merge (days) per month, all repos. Excludes Gerrit repos."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Time to Merge PRs — 75th Percentile (Monthly, 4-month avg)", "Days")
+    setup_axes(ax, "Time to Merge PRs — 75th Percentile (12-month avg)", "Days")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     visible_data = []
@@ -924,7 +924,7 @@ def chart_time_to_merge(all_ttm, output_dir):
     for repo, (months, medians) in all_ttm.items():
         if not months or repo in GERRIT_REPOS:
             continue
-        smoothed = smooth(medians, window=4)
+        smoothed = smooth(medians, window=12)
         ax.plot(months, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
