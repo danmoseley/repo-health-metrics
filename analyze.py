@@ -73,7 +73,8 @@ BOT_MERGER_REPOS = {"rust-lang/rust"}
 
 # Known bot accounts to exclude from maintainer counts
 BOT_ACCOUNTS = {"bors", "rust-bors", "dotnet-bot", "dependabot[bot]", "github-actions[bot]",
-                "renovate[bot]", "copilot-swe-agent[bot]"}
+                "renovate[bot]", "copilot-swe-agent[bot]", "Copilot",
+                "dotnet-maestro[bot]"}
 
 # Repo lineage: map display repo -> predecessor repos whose PRs should be included.
 # Issues from predecessors were transferred to the successor repo, so only PRs need merging.
@@ -85,6 +86,21 @@ REPO_LINEAGE = {
 LEGACY_REPOS = set()
 for _preds in REPO_LINEAGE.values():
     LEGACY_REPOS.update(_preds)
+
+
+def effective_author(item):
+    """For bot-authored PRs, attribute to the human requester.
+    Uses copilot_requester (from ASSIGNED_EVENT), falls back to merged_by."""
+    author = item.get("author")
+    if author and author.lower() in {b.lower() for b in BOT_ACCOUNTS} | {"copilot"}:
+        requester = item.get("copilot_requester")
+        if requester:
+            return requester
+        merger = item.get("merged_by")
+        if merger and merger.lower() not in {b.lower() for b in BOT_ACCOUNTS}:
+            return merger
+        return None
+    return author
 
 
 def get_color(repo):
@@ -110,11 +126,11 @@ def load_items(conn, repo):
     for load_repo, prs_only in repos_to_load:
         if prs_only:
             sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                   "author, merged_by "
+                   "author, merged_by, copilot_requester "
                    "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
         else:
             sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                   "author, merged_by "
+                   "author, merged_by, copilot_requester "
                    "FROM items WHERE repo = ? ORDER BY created_at")
         rows = conn.execute(sql, (load_repo,)).fetchall()
         for r in rows:
@@ -127,6 +143,7 @@ def load_items(conn, repo):
                 "merged_at": r[5],
                 "author": r[6],
                 "merged_by": r[7],
+                "copilot_requester": r[8],
             })
 
     # Fix transferred issue dates for repos with lineage
@@ -496,6 +513,57 @@ def setup_axes(ax, title, ylabel):
     ax.spines["right"].set_visible(False)
 
 
+def add_insight_box(ax, lines, loc="lower right"):
+    """Add a small text box with observation bullets to the chart.
+    lines: list of short strings. loc: 'lower right', 'upper right', 'lower left', 'upper left'."""
+    text = "\n".join(f"• {l}" for l in lines)
+    x = {"lower right": 0.98, "upper right": 0.98, "lower left": 0.02, "upper left": 0.02}[loc]
+    y = {"lower right": 0.03, "upper right": 0.97, "lower left": 0.03, "upper left": 0.97}[loc]
+    ha = "right" if "right" in loc else "left"
+    va = "bottom" if "lower" in loc else "top"
+    ax.text(x, y, text, transform=ax.transAxes, fontsize=7.5,
+            va=va, ha=ha, family="sans-serif",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc",
+                      alpha=0.9))
+
+
+def series_pct_change(dates, values, years_back=2):
+    """Compute % change in a series over the last N years using averages of the
+    first and last quarter to reduce noise. Returns (pct_change, start_year) or None."""
+    if not dates or not values or len(dates) < 52:
+        return None
+    from datetime import date as dt
+    end = dates[-1]
+    if isinstance(end, datetime):
+        end = end.date()
+    start_target = dt(end.year - years_back, end.month, end.day)
+    # Find index closest to start
+    best_i = 0
+    for i, d in enumerate(dates):
+        dd = d.date() if isinstance(d, datetime) else d
+        if dd <= start_target:
+            best_i = i
+    if best_i >= len(dates) - 13:
+        return None
+    # Average over ~3 month windows at start and end
+    window = min(13, (len(dates) - best_i) // 4)
+    if window < 4:
+        return None
+    old_avg = sum(values[best_i:best_i + window]) / window
+    new_avg = sum(values[-window:]) / window
+    if old_avg == 0:
+        return None
+    pct = 100.0 * (new_avg - old_avg) / old_avg
+    return pct, end.year - years_back
+
+
+def series_latest_avg(values, window=13):
+    """Average of the last `window` values."""
+    if not values or len(values) < window:
+        return None
+    return sum(values[-window:]) / window
+
+
 def _add_yearly_net_bars(ax, weeks, inflow, outflow):
     """Add semi-transparent yearly net bars (inflow - outflow) to an axes."""
     from datetime import date as date_type
@@ -536,6 +604,20 @@ def chart_open_issues_comparison(all_series, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    # Insights
+    insights = []
+    for repo, series in all_series.items():
+        if not series:
+            continue
+        s = smooth(series["open_issues"], window=4)
+        r = series_pct_change(series["weeks"], s, years_back=3)
+        if r:
+            direction = "up" if r[0] > 0 else "down"
+            insights.append((abs(r[0]), f"{get_short(repo)}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
+    insights.sort(reverse=True)
+    if insights:
+        lines = [i[1] for i in insights[:4]]
+        add_insight_box(ax, lines, loc="lower right")
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_comparison.png")
     fig.savefig(path, dpi=150)
@@ -553,7 +635,7 @@ def chart_open_prs_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        s = smooth(series["open_prs"], window=4)
+        s = smooth(series["open_prs"], window=13)
         ax.plot(series["weeks"], s,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -574,7 +656,7 @@ def chart_open_prs_comparison(all_series, output_dir):
 def chart_net_flow_comparison(all_series, output_dir):
     """Net issue flow (opened - closed per week), smoothed, Y-axis clamped."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Net Issue Flow (Opened - Closed per Week, 8-week avg)",
+    setup_axes(ax, "Net Issue Flow (Opened - Closed per Week, 26-week avg)",
                "Net Issues / Week")
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
@@ -584,7 +666,7 @@ def chart_net_flow_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        smoothed = smooth(series["net_issue_flow"], window=8)
+        smoothed = smooth(series["net_issue_flow"], window=26)
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -608,7 +690,7 @@ def chart_net_flow_comparison(all_series, output_dir):
 def chart_pr_merge_rate_comparison(all_series, output_dir):
     """PR merge rate (merged per week), smoothed."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "PR Merge Rate (Merged per Week, 8-week avg)",
+    setup_axes(ax, "PR Merge Rate (Merged per Week, 26-week avg)",
                "PRs Merged / Week")
 
     visible_data = []
@@ -616,7 +698,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        smoothed = smooth(series["pr_merged"], window=8)
+        smoothed = smooth(series["pr_merged"], window=26)
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -708,10 +790,10 @@ def chart_sustainability_score(all_series, output_dir):
     Above 100% = working down backlog. Below 100% = falling behind.
     """
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Issue Close Ratio (Closed / Opened, Trailing 6-Month Window)",
+    setup_axes(ax, "Issue Close Ratio (Closed / Opened, Trailing 12-Month Window)",
                "Close Ratio")
 
-    WINDOW = 26  # 26 weeks = ~6 months
+    WINDOW = 52  # 52 weeks = ~12 months
 
     ax.axhline(y=100, color="black", linewidth=1, alpha=0.4, linestyle="--")
 
@@ -772,7 +854,7 @@ def chart_time_to_merge(all_ttm, output_dir):
     visible_data = []
     line_ends = []
     for repo, (months, medians) in all_ttm.items():
-        if not months:
+        if not months or repo in GERRIT_REPOS:
             continue
         smoothed = smooth(medians, window=4)
         ax.plot(months, smoothed,
@@ -880,7 +962,7 @@ def chart_contributor_diversity(all_items, output_dir):
             if not item["is_pr"]:
                 continue
             cd = parse_date(item["created_at"])
-            author = item.get("author")
+            author = effective_author(item)
             if not cd or not author:
                 continue
             authors_by_month[cd.replace(day=1)].add(author)
@@ -899,7 +981,7 @@ def chart_contributor_diversity(all_items, output_dir):
                     window_authors |= authors_by_month[prev]
             counts.append(len(window_authors))
 
-        s = smooth(counts, 3)
+        s = smooth(counts, 6)
         ax.plot(months, s,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -920,7 +1002,7 @@ def chart_contributor_diversity(all_items, output_dir):
 def chart_issue_close_rate(all_series, output_dir):
     """Percentage of issues closed within 30 days of opening, by month."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Issue Responsiveness (% Closed Within 30 Days, 3-month avg)",
+    setup_axes(ax, "Issue Responsiveness (% Closed Within 30 Days, 6-month avg)",
                "% Closed <30d")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
@@ -958,7 +1040,7 @@ def chart_issue_close_rate(all_series, output_dir):
         if not valid:
             continue
         vm, vp = zip(*valid)
-        smoothed = smooth(list(vp), 3)
+        smoothed = smooth(list(vp), 6)
         ax.plot(list(vm), smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
