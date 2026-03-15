@@ -66,6 +66,17 @@ BOT_MERGER_REPOS = {"rust-lang/rust"}
 BOT_ACCOUNTS = {"bors", "rust-bors", "dotnet-bot", "dependabot[bot]", "github-actions[bot]",
                 "renovate[bot]", "copilot-swe-agent[bot]"}
 
+# Repo lineage: map display repo -> predecessor repos whose PRs should be included.
+# Issues from predecessors were transferred to the successor repo, so only PRs need merging.
+REPO_LINEAGE = {
+    "dotnet/runtime": ["dotnet/coreclr", "dotnet/corefx"],
+}
+
+# Repos that are predecessors — don't display as standalone lines/charts
+LEGACY_REPOS = set()
+for _preds in REPO_LINEAGE.values():
+    LEGACY_REPOS.update(_preds)
+
 
 def get_color(repo):
     return REPO_COLORS.get(repo, "#888888")
@@ -76,25 +87,113 @@ def get_short(repo):
 
 
 def load_items(conn, repo):
-    """Load all items for a repo, sorted by created_at."""
-    rows = conn.execute(
-        "SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-        "author, merged_by "
-        "FROM items WHERE repo = ? ORDER BY created_at",
-        (repo,)
-    ).fetchall()
+    """Load all items for a repo, sorted by created_at.
+    
+    For repos with lineage (e.g., dotnet/runtime), also loads PR items from
+    predecessor repos (coreclr, corefx). Issues are NOT loaded from predecessors
+    because they were transferred and already appear under the successor repo.
+    """
+    repos_to_load = [(repo, False)]  # (repo_name, prs_only)
+    for predecessor in REPO_LINEAGE.get(repo, []):
+        repos_to_load.append((predecessor, True))
+
     items = []
-    for r in rows:
-        items.append({
-            "number": r[0],
-            "created_at": r[1],
-            "closed_at": r[2],
-            "state": r[3],
-            "is_pr": bool(r[4]),
-            "merged_at": r[5],
-            "author": r[6],
-            "merged_by": r[7],
-        })
+    for load_repo, prs_only in repos_to_load:
+        if prs_only:
+            sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+                   "author, merged_by "
+                   "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
+        else:
+            sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+                   "author, merged_by "
+                   "FROM items WHERE repo = ? ORDER BY created_at")
+        rows = conn.execute(sql, (load_repo,)).fetchall()
+        for r in rows:
+            items.append({
+                "number": r[0],
+                "created_at": r[1],
+                "closed_at": r[2],
+                "state": r[3],
+                "is_pr": bool(r[4]),
+                "merged_at": r[5],
+                "author": r[6],
+                "merged_by": r[7],
+            })
+
+    # Fix transferred issue dates for repos with lineage
+    if repo in REPO_LINEAGE:
+        items = _fix_transferred_issue_dates(items)
+
+    # Sort combined items by created_at
+    items.sort(key=lambda x: x["created_at"] or "")
+    return items
+
+
+def _fix_transferred_issue_dates(items):
+    """Fix artifact from coreclr/corefx -> runtime issue transfer.
+
+    When issues were transferred, closed issues lost their original closed_at
+    dates and were mass-closed in Jan-Jun 2020. We redistribute those closure
+    dates using the time-to-close distribution from genuine post-merge data,
+    producing a smooth historical curve instead of an artificial 2020 cliff.
+    """
+    from datetime import date as date_type
+
+    MERGE_DATE = date_type(2020, 1, 15)
+    MASS_CLOSURE_START = date_type(2020, 1, 1)
+    MASS_CLOSURE_END = date_type(2020, 7, 1)
+
+    # Build TTclose distribution from genuine post-merge issues
+    ttclose_days = []
+    for item in items:
+        if item["is_pr"]:
+            continue
+        cd = parse_date(item["created_at"])
+        cld = parse_date(item["closed_at"])
+        if cd and cld and cd >= MERGE_DATE and cld > MASS_CLOSURE_END:
+            days = (cld - cd).days
+            if 0 <= days <= 3650:
+                ttclose_days.append(days)
+
+    if not ttclose_days:
+        return items
+
+    ttclose_days.sort()
+
+    # Find mass-closed transferred issues
+    transferred = []
+    for i, item in enumerate(items):
+        if item["is_pr"]:
+            continue
+        cd = parse_date(item["created_at"])
+        cld = parse_date(item["closed_at"])
+        if cd and cld and cd < MERGE_DATE and MASS_CLOSURE_START <= cld <= MASS_CLOSURE_END:
+            transferred.append(i)
+
+    if not transferred:
+        return items
+
+    n_transferred = len(transferred)
+    n_dist = len(ttclose_days)
+    max_raw_ttclose = ttclose_days[-1] if ttclose_days[-1] > 0 else 1
+
+    for rank, idx in enumerate(transferred):
+        item = items[idx]
+        cd = parse_date(item["created_at"])
+        available_days = (MERGE_DATE - cd).days
+        if available_days <= 0:
+            item["closed_at"] = item["created_at"]
+            continue
+        # Map rank to percentile in the TTclose distribution
+        pct_idx = min(int(rank / n_transferred * n_dist), n_dist - 1)
+        raw_ttclose = ttclose_days[pct_idx]
+        # Scale proportionally to fit within the available window (creation to merge)
+        scaled_ttclose = int(raw_ttclose / max_raw_ttclose * available_days)
+        est_close = cd + timedelta(days=scaled_ttclose)
+        item["closed_at"] = est_close.isoformat() + "T00:00:00Z"
+
+    print(f"    (redistributed {n_transferred:,} transferred issue close dates "
+          f"using TTclose distribution from {n_dist:,} post-merge issues)")
     return items
 
 
@@ -305,6 +404,31 @@ def smooth(data, window=4):
     return smoothed
 
 
+def robust_ylim(data_series_list, padding=1.3, symmetric=False):
+    """Compute a y-axis limit that clips outlier spikes using p95.
+    
+    data_series_list: list of lists of numeric values
+    Returns (ymin, ymax) tuple.
+    """
+    all_vals = []
+    for series in data_series_list:
+        all_vals.extend(v for v in series if v is not None)
+    if not all_vals:
+        return (0, None)
+    all_vals.sort()
+    p95 = all_vals[int(len(all_vals) * 0.95)]
+    ymax = p95 * padding
+    if symmetric:
+        neg_vals = [v for v in all_vals if v < 0]
+        if neg_vals:
+            p5 = neg_vals[max(0, int(len(neg_vals) * 0.05))]
+            ymin = p5 * padding
+        else:
+            ymin = -ymax
+        return (ymin, ymax)
+    return (0, max(ymax, 1))
+
+
 def thousands_formatter(x, pos):
     if x >= 1000:
         return f"{x/1000:.0f}K"
@@ -323,17 +447,21 @@ def setup_axes(ax, title, ylabel):
 
 
 def chart_open_issues_comparison(all_series, output_dir):
-    """Open issues over time, all repos overlaid."""
+    """Open issues over time, all repos overlaid. Y-axis clamped to p95."""
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Open Issues Over Time", "Open Issues")
 
+    visible_data = []
     for repo, series in all_series.items():
         if not series:
             continue
         ax.plot(series["weeks"], series["open_issues"],
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(series["open_issues"])
 
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_comparison.png")
@@ -347,13 +475,17 @@ def chart_open_prs_comparison(all_series, output_dir):
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Open Pull Requests Over Time", "Open PRs")
 
+    visible_data = []
     for repo, series in all_series.items():
         if not series or repo in GERRIT_REPOS:
             continue
         ax.plot(series["weeks"], series["open_prs"],
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(series["open_prs"])
 
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     ax.annotate("Note: golang/go excluded (uses Gerrit, not GitHub PRs)",
                 xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
@@ -373,6 +505,7 @@ def chart_net_flow_comparison(all_series, output_dir):
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
 
+    visible_data = []
     for repo, series in all_series.items():
         if not series:
             continue
@@ -380,10 +513,12 @@ def chart_net_flow_comparison(all_series, output_dir):
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(smoothed)
 
-    # Clamp Y-axis to exclude one-time mass-closure spikes
-    ax.set_ylim(-200, 200)
-    ax.annotate("Y-axis clamped to [-200, 200] to exclude one-time mass closures",
+    # Clamp Y-axis using p95 to exclude one-time mass-closure spikes
+    ymin, ymax = robust_ylim(visible_data, padding=1.3, symmetric=True)
+    ax.set_ylim(ymin, ymax)
+    ax.annotate("Y-axis clamped to p95 to exclude one-time mass closures",
                 xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
                 color="#888888", style="italic")
     ax.legend(loc="upper left", fontsize=10)
@@ -400,6 +535,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     setup_axes(ax, "PR Merge Rate (Merged per Week, 4-week avg)",
                "PRs Merged / Week")
 
+    visible_data = []
     for repo, series in all_series.items():
         if not series or repo in GERRIT_REPOS:
             continue
@@ -407,7 +543,10 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(smoothed)
 
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     ax.annotate("Note: golang/go excluded (uses Gerrit, not GitHub PRs)",
                 xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
@@ -510,9 +649,12 @@ def chart_sustainability_score(all_series, output_dir):
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
 
-    ax.set_ylim(0, None)
+    ax.set_ylim(0, 60)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
     ax.legend(loc="upper right", fontsize=10)
+    ax.annotate("Y-axis capped at 60% — early 100% values are startup artifacts",
+                xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
+                color="#888888", style="italic")
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
     fig.savefig(path, dpi=150)
@@ -526,6 +668,7 @@ def chart_time_to_merge(all_ttm, output_dir):
     setup_axes(ax, "Median Time to Merge PRs (Monthly, 3-month avg)", "Days")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
+    visible_data = []
     for repo, (months, medians) in all_ttm.items():
         if not months or repo in GERRIT_REPOS:
             continue
@@ -533,8 +676,10 @@ def chart_time_to_merge(all_ttm, output_dir):
         ax.plot(months, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(smoothed)
 
-    ax.set_ylim(0, None)
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     ax.annotate("Note: golang/go excluded (uses Gerrit, not GitHub PRs)",
                 xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
@@ -554,14 +699,17 @@ def chart_active_maintainers(all_maint, output_dir):
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     excluded = GERRIT_REPOS | BOT_MERGER_REPOS
+    visible_data = []
     for repo, (months, maintainers, _, _) in all_maint.items():
         if not months or repo in excluded:
             continue
-        ax.plot(months, smooth(maintainers, 3),
-                color=get_color(repo), label=get_short(repo),
+        s = smooth(maintainers, 3)
+        ax.plot(months, s, color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
 
-    ax.set_ylim(0, None)
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     notes = "Maintainer = anyone who merged a PR in the month or prior month (bots excluded)"
     excl_names = ", ".join(sorted(get_short(r) for r in excluded))
@@ -583,14 +731,17 @@ def chart_prs_per_maintainer(all_maint, output_dir):
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     excluded = GERRIT_REPOS | BOT_MERGER_REPOS
+    visible_data = []
     for repo, (months, _, prs_per, _) in all_maint.items():
         if not months or repo in excluded:
             continue
-        ax.plot(months, smooth(prs_per, 3),
-                color=get_color(repo), label=get_short(repo),
+        s = smooth(prs_per, 3)
+        ax.plot(months, s, color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
 
-    ax.set_ylim(0, None)
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     notes = "Higher = more throughput per person (or fewer maintainers doing more work)"
     excl_names = ", ".join(sorted(get_short(r) for r in excluded))
@@ -611,6 +762,7 @@ def chart_contributor_diversity(all_items, output_dir):
                "Unique Authors")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
+    visible_data = []
     for repo, items in all_items.items():
         if repo in GERRIT_REPOS:
             continue
@@ -628,11 +780,14 @@ def chart_contributor_diversity(all_items, output_dir):
             continue
         months = sorted(authors_by_month.keys())
         counts = [len(authors_by_month[m]) for m in months]
-        ax.plot(months, smooth(counts, 3),
+        s = smooth(counts, 3)
+        ax.plot(months, s,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
 
-    ax.set_ylim(0, None)
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
@@ -708,6 +863,8 @@ def main():
         repos = [r[0] for r in conn.execute(
             "SELECT DISTINCT repo FROM items ORDER BY repo"
         ).fetchall()]
+        # Exclude legacy predecessor repos — their data is merged into successor lines
+        repos = [r for r in repos if r not in LEGACY_REPOS]
 
     if not repos:
         print("ERROR: No data in database. Run fetch.py first.")
@@ -722,7 +879,16 @@ def main():
             (repo,)
         ).fetchall()
         count_map = dict(counts)
-        print(f"  {repo}: {count_map.get(0, 0):,} issues, {count_map.get(1, 0):,} PRs")
+        lineage = REPO_LINEAGE.get(repo, [])
+        suffix = ""
+        if lineage:
+            extra_prs = sum(
+                conn.execute("SELECT COUNT(*) FROM items WHERE repo = ? AND is_pull_request = 1",
+                             (p,)).fetchone()[0]
+                for p in lineage
+            )
+            suffix = f" (+{extra_prs:,} PRs from {', '.join(lineage)})"
+        print(f"  {repo}: {count_map.get(0, 0):,} issues, {count_map.get(1, 0):,} PRs{suffix}")
     print()
 
     # Compute series

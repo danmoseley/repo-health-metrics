@@ -1,19 +1,19 @@
 # Repo Health Metrics — Analysis
 
-*Data collected March 15, 2026. Charts regenerated from ~750K issues and PRs across 6 repos.*
+*Data collected March 15, 2026. Charts regenerated from ~791K issues and PRs across 6 repos (+2 legacy repos merged into runtime lineage).*
 
 ## Repos Analyzed
 
 | Repo | Issues | PRs | Total | Date Range |
 |------|--------|-----|-------|------------|
-| dotnet/runtime | 70,484 | 51,152 | 121,636 | Sep 2014 – present* |
-| dotnet/roslyn | 35,836 | 45,107 | 80,943 | Jan 2015 – present |
-| dotnet/maui | 17,224 | 13,526 | 30,750 | May 2020 – present |
-| microsoft/vscode | 233,877 | 52,242 | 286,119 | Oct 2015 – present |
-| rust-lang/rust | 61,720 | 91,619 | 153,339 | Jun 2010 – present |
-| golang/go | 70,580 | 4,921 | 75,501 | Oct 2009 – present |
+| dotnet/runtime | 70,484 | 94,287* | 164,771 | Sep 2014 -- present |
+| dotnet/roslyn | 35,836 | 45,108 | 80,944 | Jan 2015 -- present |
+| dotnet/maui | 17,224 | 13,526 | 30,750 | May 2020 -- present |
+| microsoft/vscode | 233,877 | 52,244 | 286,121 | Oct 2015 -- present |
+| rust-lang/rust | 61,720 | 91,627 | 153,347 | Jun 2010 -- present |
+| golang/go | 70,580 | 4,921 | 75,501 | Oct 2009 -- present |
 
-\* *runtime has pre-2020 issues inherited from coreclr/corefx repos. PRs pre-2020 are missing — coreclr+corefx data would fill this gap. See "Known Artifacts" below.*
+\* *runtime PR count includes 18,208 from dotnet/coreclr and 24,927 from dotnet/corefx, which were the predecessor repos before the Nov 2019 consolidation. Issues were transferred by GitHub and already appear under runtime with original dates. See "Lineage Handling" below.*
 
 **Note on golang/go**: Go uses Gerrit for code review, not GitHub PRs. The 4,921 PRs are mostly bot-generated or mirror artifacts. Go is excluded from all PR-based charts but included in issue charts.
 
@@ -115,13 +115,13 @@ A declining trend here could indicate the project is becoming harder to contribu
 
 ## Known Artifacts & Limitations
 
-### The 2020 Runtime Consolidation Cliff
-dotnet/runtime was created in late 2019 by merging dotnet/coreclr and dotnet/corefx. The massive cliff in the open-issues chart around 2020 is NOT a real triage event — it's an artifact:
-- Only **open** issues were transferred to the new repo
-- **Closed** issues stayed behind in coreclr/corefx
-- **PRs** pre-2020 are entirely missing from the runtime data
+### Runtime Lineage Handling (coreclr + corefx)
+dotnet/runtime was created in late 2019 by merging dotnet/coreclr and dotnet/corefx. We handle this by treating the three repos as a single lineage:
+- **Issues**: GitHub transferred all issues (open and closed) to the runtime repo during the merger. They appear with their original `created_at` dates, so no special handling is needed. We verified 29,958 runtime issues have pre-2020 dates, with the earliest from September 2014.
+- **PRs**: Cannot be transferred between repos on GitHub. We fetched all 18,208 coreclr PRs and 24,927 corefx PRs separately and merge them into the runtime timeline in `analyze.py`. This fills the pre-2020 PR gap and eliminates the artificial cliff that would otherwise appear around 2020.
+- **Maintainer data**: Merged_by data was fetched via GraphQL for coreclr and corefx PRs, so maintainer charts also have continuous coverage.
 
-**Fix (planned)**: Fetch coreclr and corefx data and treat the three repos as a single lineage for runtime's history. This will fill the pre-2020 PR gap and eliminate the artificial cliff.
+The result: all runtime chart lines now extend smoothly back to 2014 with no inflection points at the 2020 consolidation boundary.
 
 ### golang/go Uses Gerrit
 Go's code review happens on Gerrit, not GitHub. The ~5K GitHub PRs are mostly mirror artifacts. Go is excluded from all PR-based charts (merge rate, time-to-merge, maintainer stats) but included in issue-based charts.
@@ -142,9 +142,10 @@ When data is exported to CSV and reimported, empty strings replace SQL NULLs. Th
 | File | Purpose |
 |------|---------|
 | `fetch.py` | Paginated REST API fetcher with checkpoint/resume |
-| `analyze.py` | Time series computation and chart generation |
+| `fetch_mergers.py` | GraphQL-based merged_by fetcher for maintainer analysis |
+| `analyze.py` | Time series computation and chart generation (with lineage merging) |
 | `load_csv.py` | Rebuild SQLite DB from compressed CSV |
-| `data/items.csv.gz` | Compressed data export (~12MB) |
+| `data/items.csv.gz` | Compressed data export (~15MB, 791K items across 8 repos) |
 | `charts/` | Generated PNG charts |
 | `plan.md` | Original feasibility proposal and design notes |
 
