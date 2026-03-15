@@ -30,6 +30,7 @@ try:
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
     from matplotlib.ticker import FuncFormatter
+    plt.rcParams['mathtext.fontset'] = 'dejavusans'
 except ImportError:
     print("ERROR: matplotlib is required. Install with: pip install matplotlib")
     sys.exit(1)
@@ -531,8 +532,16 @@ def setup_axes(ax, title, ylabel):
 
 def add_insight_box(ax, lines, loc="upper center"):
     """Add a small text box with observation bullets to the chart.
-    loc: 'upper center' (below title), 'lower left', 'lower right', 'upper left', 'upper right'."""
+    loc: 'upper center' (below title), 'lower left', 'lower right', 'upper left', 'upper right'.
+    Repo short names are auto-bolded via mathtext."""
+    import re
+    # Auto-bold known repo short names (sorted longest-first to avoid partial matches)
+    bold_names = sorted(set(REPO_SHORT.values()), key=len, reverse=True)
     text = "\n".join(f"• {l}" for l in lines)
+    for name in bold_names:
+        pattern = r'\b' + re.escape(name) + r'\b'
+        bold = '$\\mathbf{' + name + '}$'
+        text = re.sub(pattern, lambda m, b=bold: b, text)
     positions = {
         "upper center": (0.50, 0.97, "center", "top"),
         "lower left":   (0.02, 0.03, "left",   "bottom"),
@@ -625,9 +634,9 @@ def chart_open_issues_comparison(all_series, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "Issue backlogs grow monotonically — no repo has reversed this",
-        "go's flat line reflects design: issues stay open as proposals",
-        "vscode's steep slope likely driven by its massive user base",
+        "Issue backlogs grow monotonically across all repos — none has reversed this",
+        "vscode triages ~3K issues every December (end-of-year housekeeping)\n  but the upward trend still dominates",
+        "go's flat backlog reflects disciplined triage — open/close rates\n  stay balanced, unlike most repos where backlogs grow unchecked",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_comparison.png")
@@ -658,9 +667,9 @@ def chart_open_prs_comparison(all_series, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
+        "PR backlogs rise over time in every repo — a universal pattern",
         "vscode's 3x jump in 2022 was a workflow change to smaller PRs,\n  not team growth — same ~175 authors making 3x more PRs",
         "rust's high open PR count reflects rigorous review culture\n  — many PRs await RFC or crater run results for weeks",
-        "runtime growing steadily — may signal increasing review backlog",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_comparison.png")
@@ -672,7 +681,7 @@ def chart_open_prs_comparison(all_series, output_dir):
 def chart_net_flow_comparison(all_series, output_dir):
     """Net issue flow (opened - closed per week), smoothed, Y-axis clamped."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Net Issue Flow (Opened − Closed per Week, 12-month avg)",
+    setup_axes(ax, "Net Issue Flow (Opened − Closed per Week, 2-year avg)",
                "Net Issues / Week")
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
@@ -685,7 +694,7 @@ def chart_net_flow_comparison(all_series, output_dir):
         # Smooth the raw net flow directly with a wide window.
         # Smoothing opened/closed separately then subtracting stays noisy
         # because correlated weekly spikes don't cancel in the difference.
-        smoothed = smooth(series["net_issue_flow"], window=52)
+        smoothed = smooth(series["net_issue_flow"], window=104)
         alpha = 0.4 if repo == "microsoft/vscode" else 0.85
         lw = 1.2 if repo == "microsoft/vscode" else 1.5
         ax.plot(series["weeks"], smoothed,
@@ -709,14 +718,14 @@ def chart_net_flow_comparison(all_series, output_dir):
             continue
         so = smooth(series["issue_opened"], window=26)
         sc = smooth(series["issue_closed"], window=26)
-        s = smooth(series["net_issue_flow"], window=52)
+        s = smooth(series["net_issue_flow"], window=104)
         avg = series_latest_avg(s, window=13)
         if avg is not None:
             (above if avg > 0 else below).append((avg, get_short(repo)))
     lines = [
         "All repos oscillate near zero — none losing ground long-term",
         "Dips below zero often precede releases (focused triage sprints)",
-        "go stays flattest — deliberate philosophy of keeping issues open",
+        "go stays flattest — disciplined triage keeps open/close rates balanced",
     ]
     add_insight_box(ax, lines)
     fig.tight_layout()
