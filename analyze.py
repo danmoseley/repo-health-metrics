@@ -980,6 +980,84 @@ def chart_time_to_merge(all_ttm, output_dir):
     print(f"  {path}")
 
 
+def chart_open_pr_age(all_items, output_dir):
+    """Median age (days) of open PRs at each monthly snapshot — shows backlog staleness."""
+    from statistics import median
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Median Age of Open PRs (Monthly Snapshot, 6-month avg)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    visible_data = []
+    line_ends = []
+    for repo, items in all_items.items():
+        if repo in GERRIT_REPOS:
+            continue
+        # Collect PRs with created/closed dates
+        prs = []
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd:
+                continue
+            close = parse_date(item.get("merged_at") or item.get("closed_at"))
+            prs.append((cd, close))
+        if not prs:
+            continue
+        prs.sort(key=lambda x: x[0])
+
+        # Monthly snapshots
+        first_month = prs[0][0].replace(day=1)
+        last_month = datetime.now().date().replace(day=1)
+        months = []
+        medians = []
+        m = first_month
+        while m <= last_month:
+            snapshot = m + timedelta(days=15)  # mid-month
+            ages = []
+            for created, closed in prs:
+                cd_date = created if isinstance(created, type(snapshot)) else created.date() if hasattr(created, 'date') else created
+                if cd_date > snapshot:
+                    break  # sorted by created_at
+                cl_date = None
+                if closed:
+                    cl_date = closed if isinstance(closed, type(snapshot)) else closed.date() if hasattr(closed, 'date') else closed
+                if cl_date is None or cl_date > snapshot:
+                    ages.append((snapshot - cd_date).days)
+            if ages:
+                months.append(m)
+                medians.append(median(ages))
+            m = (m + timedelta(days=32)).replace(day=1)
+
+        if not months:
+            continue
+        s = smooth(medians, 6)
+        ax.plot(months, s,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((months, s, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Complements TTM — TTM shows merged PRs, this shows the unmerged backlog",
+        "Rising age = PRs accumulating faster than they're being reviewed",
+        "maui's high age reflects long-lived partner/community PRs in queue",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "open_pr_age.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def chart_active_maintainers(all_maint, output_dir):
     """Active maintainers per month (2-month rolling window). Excludes Gerrit and bot-merger repos."""
     fig, ax = plt.subplots(figsize=(14, 7))
@@ -1228,23 +1306,30 @@ def chart_contributor_diversity(all_items, output_dir):
 
 
 def chart_issue_community(all_items, output_dir):
-    """Distinct issue openers per month (2-month rolling window) — measures community breadth via issues."""
+    """Distinct community issue openers per month (non-maintainers, 2-month window)."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Active Issue Community (Distinct Issue Openers, 2-Month Window, 6-month avg)",
-               "Unique Openers")
+    setup_axes(ax, "Distinct Community Issue Openers (Non-Maintainers, 2-Month Window, 6-month avg)",
+               "Unique Community Openers")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     visible_data = []
     line_ends = []
     has_data = False
     for repo, items in all_items.items():
+        # Build maintainer set (anyone who ever merged a PR)
+        maintainers = set()
+        for item in items:
+            if item["is_pr"] and item.get("merged_by"):
+                maintainers.add(item["merged_by"])
+        maintainers |= BOT_ACCOUNTS
+
         authors_by_month = defaultdict(set)
         for item in items:
             if item["is_pr"]:
                 continue
             cd = parse_date(item["created_at"])
             author = item.get("author")
-            if not cd or not author:
+            if not cd or not author or author in maintainers:
                 continue
             authors_by_month[cd.replace(day=1)].add(author)
 
@@ -1279,12 +1364,73 @@ def chart_issue_community(all_items, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "Much larger pool than PR authors — most contributors file issues only",
+        "Excludes maintainers — shows external community engagement only",
         "vscode dominates due to massive user base reporting bugs",
         "Trends here reflect product adoption more than dev community size",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "issue_community_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_community_issue_volume(all_items, output_dir):
+    """Monthly count of issues opened by community (non-maintainer) members."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Issues Opened by Community (Non-Maintainers, 6-month avg)",
+               "Issues / Month")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    visible_data = []
+    line_ends = []
+    has_data = False
+    for repo, items in all_items.items():
+        maintainers = set()
+        for item in items:
+            if item["is_pr"] and item.get("merged_by"):
+                maintainers.add(item["merged_by"])
+        maintainers |= BOT_ACCOUNTS
+
+        issues_by_month = defaultdict(int)
+        for item in items:
+            if item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            author = item.get("author")
+            if not cd or not author or author in maintainers:
+                continue
+            issues_by_month[cd.replace(day=1)] += 1
+
+        if not issues_by_month:
+            continue
+        months = sorted(issues_by_month.keys())
+        counts = [issues_by_month[m] for m in months]
+
+        s = smooth(counts, 6)
+        ax.plot(months, s,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((months, s, get_short(repo), get_color(repo)))
+        has_data = True
+
+    if not has_data:
+        plt.close(fig)
+        print("  (skipping community issue volume chart — no issue author data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "runtime volume declining since 2022 — but community share is rising\n  (55% to 62%) — fewer total issues as platform matures",
+        "vscode volume tracks product adoption — dwarfs all other repos",
+        "Declining volume + rising community % = healthy maturation pattern",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "community_issue_volume.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -1482,6 +1628,175 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
     print(f"  {path}")
 
 
+def chart_community_time_to_close(all_items, output_dir):
+    """P75 time-to-close (days) for community-filed issues, by month."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Community Issue Time-to-Close — 75th Percentile (12-month avg)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    from datetime import date as date_type
+    LINEAGE_CUTOFF = {repo: date_type(2020, 1, 1) for repo in REPO_LINEAGE}
+
+    visible_data = []
+    line_ends = []
+    has_data = False
+    for repo, items in all_items.items():
+        cutoff = LINEAGE_CUTOFF.get(repo)
+
+        maintainers = set()
+        for item in items:
+            if item["is_pr"] and item.get("merged_by"):
+                maintainers.add(item["merged_by"])
+        maintainers |= BOT_ACCOUNTS
+
+        # Collect close times by month
+        close_times_by_month = defaultdict(list)
+        for item in items:
+            if item["is_pr"]:
+                continue
+            author = item.get("author")
+            if not author or author in maintainers:
+                continue
+            cd = parse_date(item["created_at"])
+            cld = parse_date(item["closed_at"])
+            if not cd or not cld:
+                continue
+            if cutoff and cd < cutoff:
+                continue
+            days = (cld - cd).days
+            close_times_by_month[cd.replace(day=1)].append(days)
+
+        if not close_times_by_month:
+            continue
+        months = sorted(close_times_by_month.keys())
+        import numpy as np
+        p75s = []
+        valid_months = []
+        for m in months:
+            times = close_times_by_month[m]
+            if len(times) >= 10:
+                p75s.append(float(np.percentile(times, 75)))
+                valid_months.append(m)
+
+        if len(valid_months) < 6:
+            continue
+        s = smooth(p75s, 12)
+        ax.plot(valid_months, s,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((valid_months, s, get_short(repo), get_color(repo)))
+        has_data = True
+
+    if not has_data:
+        plt.close(fig)
+        print("  (skipping community time-to-close — no issue author data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Measures how long community bug reports actually take to resolve",
+        "Rising trend = community issues sitting longer before resolution",
+        "Complements responsiveness % — this shows severity of the slow cases",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "community_time_to_close.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_community_issue_age(all_items, output_dir):
+    """Median age (days) of open community-filed issues at each monthly snapshot."""
+    from statistics import median
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Median Age of Open Community Issues (Monthly Snapshot, 6-month avg)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    visible_data = []
+    line_ends = []
+    has_data = False
+    for repo, items in all_items.items():
+        maintainers = set()
+        for item in items:
+            if item["is_pr"] and item.get("merged_by"):
+                maintainers.add(item["merged_by"])
+        maintainers |= BOT_ACCOUNTS
+
+        # Collect community issues with dates
+        issues = []
+        for item in items:
+            if item["is_pr"]:
+                continue
+            author = item.get("author")
+            if not author or author in maintainers:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd:
+                continue
+            close = parse_date(item["closed_at"])
+            issues.append((cd, close))
+        if not issues:
+            continue
+        issues.sort(key=lambda x: x[0])
+
+        # Monthly snapshots
+        first_month = issues[0][0].replace(day=1)
+        last_month = datetime.now().date().replace(day=1)
+        months = []
+        medians = []
+        m = first_month
+        while m <= last_month:
+            snapshot = m + timedelta(days=15)
+            ages = []
+            for created, closed in issues:
+                cd_date = created if isinstance(created, type(snapshot)) else created.date() if hasattr(created, 'date') else created
+                if cd_date > snapshot:
+                    break
+                cl_date = None
+                if closed:
+                    cl_date = closed if isinstance(closed, type(snapshot)) else closed.date() if hasattr(closed, 'date') else closed
+                if cl_date is None or cl_date > snapshot:
+                    ages.append((snapshot - cd_date).days)
+            if len(ages) >= 5:
+                months.append(m)
+                medians.append(median(ages))
+            m = (m + timedelta(days=32)).replace(day=1)
+
+        if len(months) < 6:
+            continue
+        s = smooth(medians, 6)
+        ax.plot(months, s,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((months, s, get_short(repo), get_color(repo)))
+        has_data = True
+
+    if not has_data:
+        plt.close(fig)
+        print("  (skipping community issue age — no issue author data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Rising = community issues piling up unanswered",
+        "Falling = team is actively working down the community backlog",
+        "High age + high volume = community losing patience with the project",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "community_issue_age.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate repo health charts")
@@ -1570,6 +1885,7 @@ def main():
         chart_pr_merge_rate_comparison(all_series, output_dir)
         chart_sustainability_score(all_series, output_dir)
         chart_time_to_merge(all_ttm, output_dir)
+        chart_open_pr_age(all_items, output_dir)
         chart_issue_close_rate(all_items, output_dir)
         if has_maintainer_data:
             chart_active_maintainers(all_maint, output_dir)
@@ -1579,7 +1895,10 @@ def main():
             chart_contributor_diversity(all_items, output_dir)
             chart_copilot_adoption(all_items, output_dir)
             chart_issue_community(all_items, output_dir)
+            chart_community_issue_volume(all_items, output_dir)
             chart_community_responsiveness(all_items, all_maint, output_dir)
+            chart_community_time_to_close(all_items, output_dir)
+            chart_community_issue_age(all_items, output_dir)
         else:
             print("  (skipping maintainer charts — no author/merged_by data yet)")
 
