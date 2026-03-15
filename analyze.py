@@ -650,6 +650,21 @@ def chart_open_prs_comparison(all_series, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    # Insights
+    insights = []
+    for repo, series in all_series.items():
+        if not series:
+            continue
+        s = smooth(series["open_prs"], window=13)
+        r = series_pct_change(series["weeks"], s, years_back=3)
+        if r:
+            direction = "up" if r[0] > 0 else "down"
+            insights.append((abs(r[0]), f"{get_short(repo)}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
+    insights.sort(reverse=True)
+    if insights:
+        lines = [i[1] for i in insights[:3]]
+        lines.append("Open PR backlogs growing across all major repos")
+        add_insight_box(ax, lines, loc="lower right")
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_comparison.png")
     fig.savefig(path, dpi=150)
@@ -684,6 +699,25 @@ def chart_net_flow_comparison(all_series, output_dir):
                 color="#888888", style="italic")
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    # Insights: who's currently above/below zero
+    above = []
+    below = []
+    for repo, series in all_series.items():
+        if not series:
+            continue
+        s = smooth(series["net_issue_flow"], window=26)
+        avg = series_latest_avg(s, window=13)
+        if avg is not None:
+            (above if avg > 0 else below).append((avg, get_short(repo)))
+    lines = []
+    if above:
+        names = ", ".join(n for _, n in sorted(above, reverse=True))
+        lines.append(f"Currently accumulating: {names}")
+    if below:
+        names = ", ".join(n for _, n in sorted(below))
+        lines.append(f"Currently reducing backlog: {names}")
+    if lines:
+        add_insight_box(ax, lines, loc="upper right")
     fig.tight_layout()
     path = os.path.join(output_dir, "net_issue_flow_comparison.png")
     fig.savefig(path, dpi=150)
@@ -713,6 +747,18 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     ax.set_ylim(ymin, max(ymax, 300))
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    # Insights
+    lines = []
+    for repo, series in all_series.items():
+        if not series:
+            continue
+        s = smooth(series["pr_merged"], window=26)
+        r = series_pct_change(series["weeks"], s, years_back=3)
+        if r and abs(r[0]) > 30:
+            direction = "up" if r[0] > 0 else "down"
+            lines.append(f"{get_short(repo)}: {direction} {abs(r[0]):.0f}% since {r[1]}")
+    if lines:
+        add_insight_box(ax, lines[:4], loc="upper right")
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
     fig.savefig(path, dpi=150)
@@ -843,6 +889,23 @@ def chart_sustainability_score(all_series, output_dir):
             color="#888888", style="italic", va="bottom")
     ax.text(x_pos, 97, "▼ growing backlog", fontsize=9,
             color="#888888", style="italic", va="top")
+    # Insights: current close ratio for each repo
+    ratios_now = []
+    for repo, series in all_series.items():
+        if not series:
+            continue
+        s = smooth(series["issue_closed"], window=52)
+        o = smooth(series["issue_opened"], window=52)
+        recent_closed = sum(s[-13:]) if len(s) >= 13 else None
+        recent_opened = sum(o[-13:]) if len(o) >= 13 else None
+        if recent_opened and recent_opened > 0:
+            ratio = 100 * recent_closed / recent_opened
+            ratios_now.append((ratio, get_short(repo)))
+    if ratios_now:
+        ratios_now.sort(reverse=True)
+        lines = [f"{n}: {r:.0f}%" for r, n in ratios_now]
+        lines.insert(0, "Current 12-month close ratio:")
+        add_insight_box(ax, lines, loc="lower left")
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
     fig.savefig(path, dpi=150)
@@ -872,9 +935,19 @@ def chart_time_to_merge(all_ttm, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    ax.annotate("Note: golang/go excluded (uses Gerrit, not GitHub PRs)",
-                xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
-                color="#888888", style="italic")
+    # Insights: current p75 TTM for each repo
+    ttm_now = []
+    for repo, (months, medians) in all_ttm.items():
+        if not months or repo in GERRIT_REPOS:
+            continue
+        recent = medians[-3:] if len(medians) >= 3 else medians
+        if recent:
+            ttm_now.append((sum(recent) / len(recent), get_short(repo)))
+    if ttm_now:
+        ttm_now.sort()
+        lines = [f"{n}: {d:.0f} days" for d, n in ttm_now]
+        lines.insert(0, "Current p75 time to merge:")
+        add_insight_box(ax, lines, loc="upper right")
     fig.tight_layout()
     path = os.path.join(output_dir, "time_to_merge_comparison.png")
     fig.savefig(path, dpi=150)
@@ -905,11 +978,20 @@ def chart_active_maintainers(all_maint, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    notes = "Maintainer = anyone who merged a PR in the month or prior month (bots excluded)"
-    excl_names = ", ".join(sorted(get_short(r) for r in excluded))
-    notes += f"\nExcluded: {excl_names} (Gerrit/bot-merger workflows)"
-    ax.annotate(notes, xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
-                color="#888888", style="italic")
+    # Insights: % change in maintainers
+    insights = []
+    for repo, (months, maintainers, _, _) in all_maint.items():
+        if not months or repo in excluded:
+            continue
+        s = smooth(maintainers, 3)
+        r = series_pct_change(months, s, years_back=2)
+        if r:
+            direction = "up" if r[0] > 0 else "down"
+            insights.append((r[0], f"{get_short(repo)}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
+    insights.sort(key=lambda x: x[0])  # most declining first
+    if insights:
+        lines = [i[1] for i in insights[:4]]
+        add_insight_box(ax, lines, loc="upper right")
     fig.tight_layout()
     path = os.path.join(output_dir, "active_maintainers_comparison.png")
     fig.savefig(path, dpi=150)
@@ -940,11 +1022,21 @@ def chart_prs_per_maintainer(all_maint, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    notes = "Higher = more throughput per person (or fewer maintainers doing more work)"
-    excl_names = ", ".join(sorted(get_short(r) for r in excluded))
-    notes += f"\nExcluded: {excl_names} (Gerrit/bot-merger workflows)"
-    ax.annotate(notes, xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
-                color="#888888", style="italic")
+    # Insights: current PRs/maintainer for each repo
+    rates = []
+    for repo, (months, _, prs_per, _) in all_maint.items():
+        if not months or repo in excluded:
+            continue
+        recent = prs_per[-3:] if len(prs_per) >= 3 else prs_per
+        if recent:
+            rates.append((sum(recent) / len(recent), get_short(repo)))
+    if rates:
+        rates.sort(reverse=True)
+        lines = [f"{n}: {r:.0f} PRs/person/mo" for r, n in rates]
+        lines.insert(0, "Current workload per maintainer:")
+        if rates[0][0] > rates[-1][0] * 1.5:
+            lines.append(f"{rates[0][1]} has {rates[0][0]/rates[-1][0]:.1f}x the load of {rates[-1][1]}")
+        add_insight_box(ax, lines, loc="upper right")
     fig.tight_layout()
     path = os.path.join(output_dir, "prs_per_maintainer_comparison.png")
     fig.savefig(path, dpi=150)
@@ -997,6 +1089,22 @@ def chart_contributor_diversity(all_items, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    # Insights: % change in community size
+    insights = []
+    for repo, items in all_items.items():
+        # Recompute for insight (reuse line_ends data)
+        pass
+    # Use line_ends data directly for % change
+    for dates, vals, name, color in line_ends:
+        r = series_pct_change(dates, vals, years_back=2)
+        if r:
+            direction = "up" if r[0] > 0 else "down"
+            insights.append((r[0], f"{name}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
+    insights.sort(key=lambda x: x[0])  # most declining first
+    if insights:
+        lines = [i[1] for i in insights[:4]]
+        lines.append("Copilot PRs attributed to their human requester")
+        add_insight_box(ax, lines, loc="upper right")
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1054,6 +1162,17 @@ def chart_issue_close_rate(all_series, output_dir):
     ax.set_ylim(0, 100)
     ax.legend(loc="upper right", fontsize=10)
     label_line_ends(ax, line_ends)
+    # Insights: current responsiveness
+    resp_now = []
+    for dates, vals, name, color in line_ends:
+        avg = series_latest_avg(vals, window=6)
+        if avg is not None:
+            resp_now.append((avg, name))
+    if resp_now:
+        resp_now.sort(reverse=True)
+        lines = [f"{n}: {r:.0f}%" for r, n in resp_now]
+        lines.insert(0, "Current % closed within 30 days:")
+        add_insight_box(ax, lines, loc="lower left")
     if LINEAGE_CUTOFF:
         cutoff_names = ", ".join(get_short(r) for r in LINEAGE_CUTOFF)
         ax.annotate(f"Note: {cutoff_names} shown from 2020 (pre-merge close dates unreliable)",
