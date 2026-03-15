@@ -517,7 +517,7 @@ def setup_axes(ax, title, ylabel):
     ax.spines["right"].set_visible(False)
 
 
-def add_insight_box(ax, lines, loc="upper left"):
+def add_insight_box(ax, lines, loc="lower left"):
     """Add a small text box with observation bullets to the chart.
     lines: list of short strings. loc: 'lower right', 'upper right', 'lower left', 'upper left'."""
     text = "\n".join(f"• {l}" for l in lines)
@@ -525,10 +525,10 @@ def add_insight_box(ax, lines, loc="upper left"):
     y = {"lower right": 0.03, "upper right": 0.97, "lower left": 0.03, "upper left": 0.97}[loc]
     ha = "right" if "right" in loc else "left"
     va = "bottom" if "lower" in loc else "top"
-    ax.text(x, y, text, transform=ax.transAxes, fontsize=8.5,
-            va=va, ha=ha, family="sans-serif",
+    ax.text(x, y, text, transform=ax.transAxes, fontsize=9.5,
+            va=va, ha=ha, family="sans-serif", zorder=10,
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc",
-                      alpha=0.9))
+                      alpha=0.92))
 
 
 def series_pct_change(dates, values, years_back=2):
@@ -612,7 +612,7 @@ def chart_open_issues_comparison(all_series, output_dir):
         "Issue backlogs grow monotonically — no repo has reversed this",
         "go's flat line reflects design: issues stay open as proposals",
         "vscode's steep slope likely driven by its massive user base",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_comparison.png")
     fig.savefig(path, dpi=150)
@@ -645,7 +645,7 @@ def chart_open_prs_comparison(all_series, output_dir):
         "vscode's 3x jump in 2022 was a workflow change to smaller PRs,\n  not team growth — same ~175 authors making 3x more PRs",
         "rust's high open PR count reflects rigorous review culture\n  — many PRs await RFC or crater run results for weeks",
         "runtime growing steadily — may signal increasing review backlog",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_comparison.png")
     fig.savefig(path, dpi=150)
@@ -701,7 +701,7 @@ def chart_net_flow_comparison(all_series, output_dir):
         "Dips below zero often precede releases (focused triage sprints)",
         "go stays flattest — deliberate philosophy of keeping issues open",
     ]
-    add_insight_box(ax, lines, loc="upper left")
+    add_insight_box(ax, lines)
     fig.tight_layout()
     path = os.path.join(output_dir, "net_issue_flow_comparison.png")
     fig.savefig(path, dpi=150)
@@ -735,12 +735,24 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
         "dotnet repos dip each Nov — freeze before annual .NET release",
         "vscode 3x jump mid-2022 was workflow shift to smaller PRs,\n  not a staffing increase (same ~175 authors)",
         "rust's steady ~250/wk despite volunteer governance is remarkable",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
+
+
+def _dashboard_insight(ax, text, loc="lower right"):
+    """Small insight annotation for dashboard sub-panels."""
+    x = 0.98 if "right" in loc else 0.02
+    y = 0.03 if "lower" in loc else 0.97
+    ha = "right" if "right" in loc else "left"
+    va = "bottom" if "lower" in loc else "top"
+    ax.text(x, y, text, transform=ax.transAxes, fontsize=8,
+            va=va, ha=ha, family="sans-serif", style="italic", color="#555555",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#dddddd",
+                      alpha=0.85))
 
 
 def chart_per_repo_dashboard(repo, series, output_dir):
@@ -758,10 +770,16 @@ def chart_per_repo_dashboard(repo, series, output_dir):
     setup_axes(ax, "Open Issues", "Count")
     ax.plot(weeks, series["open_issues"], color=color, linewidth=1.5)
     ax.fill_between(weeks, series["open_issues"], alpha=0.15, color=color)
+    # Insight: trend direction
+    oi = series["open_issues"]
+    if len(oi) >= 52:
+        delta = oi[-1] - oi[-52]
+        direction = "rising" if delta > 0 else "falling"
+        _dashboard_insight(ax, f"Backlog {direction} ({delta:+,} in last year)")
 
     # Panel 2: Open PRs
     ax = axes[0, 1]
-    setup_axes(ax, "Open PRs", "Count")
+    setup_axes(ax, "Open PRs (6-month avg)", "Count")
     open_prs_smooth = smooth(series["open_prs"], window=26)
     ax.plot(weeks, open_prs_smooth, color=color, linewidth=1.5)
     ax.fill_between(weeks, open_prs_smooth, alpha=0.15, color=color)
@@ -769,6 +787,10 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         ax.annotate("PR merge inferred from close date (Gerrit workflow)",
                     xy=(0.02, 0.02), xycoords="axes fraction", fontsize=7,
                     color="#888888", style="italic")
+    elif len(series["open_prs"]) >= 52:
+        delta = series["open_prs"][-1] - series["open_prs"][-52]
+        direction = "growing" if delta > 0 else "shrinking"
+        _dashboard_insight(ax, f"Review queue {direction} ({delta:+,} in last year)")
 
     # Panel 3: Issue inflow vs outflow (smoothed, clamped) + yearly net bars
     ax = axes[1, 0]
@@ -787,6 +809,14 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         p95 = sorted(all_vals)[int(len(all_vals) * 0.95)]
         ax.set_ylim(-p95 * 0.4, p95 * 1.5)
     ax.legend(fontsize=9)
+    # Insight: are we keeping up?
+    if len(series["issue_opened"]) >= 52:
+        recent_opened = sum(series["issue_opened"][-52:])
+        recent_closed = sum(series["issue_closed"][-52:])
+        if recent_opened > 0:
+            ratio = recent_closed / recent_opened
+            status = "keeping pace" if ratio > 0.95 else "falling behind"
+            _dashboard_insight(ax, f"Last year: {status} (close ratio {ratio:.0%})")
 
     # Panel 4: PRs opened vs merged (smoothed, clamped) + yearly net bars
     ax = axes[1, 1]
@@ -803,6 +833,14 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         p95 = sorted(all_vals)[int(len(all_vals) * 0.95)]
         ax.set_ylim(-p95 * 0.4, p95 * 1.5)
     ax.legend(fontsize=9)
+    # Insight: merge rate trend
+    if len(series["pr_merged"]) >= 104:
+        recent = sum(series["pr_merged"][-52:])
+        prior = sum(series["pr_merged"][-104:-52])
+        if prior > 0:
+            change = (recent - prior) / prior
+            trend = "accelerating" if change > 0.05 else ("slowing" if change < -0.05 else "steady")
+            _dashboard_insight(ax, f"Merge rate {trend} vs prior year ({change:+.0%})")
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     safe_name = repo.replace("/", "_")
@@ -870,7 +908,7 @@ def chart_sustainability_score(all_series, output_dir):
         "Ratio >100% means closing more than opening (shrinking backlog)",
         "Most repos hover near 100% — roughly keeping pace",
         "Sustained periods below 100% signal growing maintenance debt",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
     fig.savefig(path, dpi=150)
@@ -905,7 +943,7 @@ def chart_time_to_merge(all_ttm, output_dir):
         "runtime and roslyn: fast merges (<5d p75) — strong review culture",
         "maui p75 is 9x others — many partner/community PRs sit in queue",
         "maui has Syncfusion contributors with 20-30 day median review waits",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "time_to_merge_comparison.png")
     fig.savefig(path, dpi=150)
@@ -940,7 +978,7 @@ def chart_active_maintainers(all_maint, output_dir):
         "runtime maintainers dropped significantly since 2023",
         "vscode steadily growing — now the largest maintainer pool",
         "maui volatile — small team, sensitive to individual changes",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "active_maintainers_comparison.png")
     fig.savefig(path, dpi=150)
@@ -975,7 +1013,7 @@ def chart_prs_per_maintainer(all_maint, output_dir):
         "Higher = more throughput per person (or fewer maintainers stretched thin)",
         "maui: 2-3 people merge nearly all PRs (rmarinho ~50%)",
         "vscode maintainers handle ~2x the PR volume of dotnet repos",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "prs_per_maintainer_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1049,7 +1087,7 @@ def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
         "Rising = fewer maintainers responsible for more issues",
         "runtime burden growing — maintainer count dropped while issues held steady",
         "vscode's large team keeps per-person load relatively flat",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_per_maintainer.png")
     fig.savefig(path, dpi=150)
@@ -1095,7 +1133,7 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
         "Rising = each reviewer has more PRs queued for attention",
         "maui's tiny merge team (2-3 people) drives high per-person load",
         "roslyn steady — mature process scales with consistent team size",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_per_maintainer.png")
     fig.savefig(path, dpi=150)
@@ -1152,7 +1190,7 @@ def chart_contributor_diversity(all_items, output_dir):
         "runtime community shrinking — down ~30% since 2024",
         "Copilot PRs attributed to their human requester",
         "rust has broadest contributor base despite niche language",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1206,7 +1244,7 @@ def chart_copilot_adoption(all_items, output_dir):
         "Shows adoption of Copilot SWE Agent for PR creation",
         "runtime is early/aggressive adopter — reflects team investment",
         "Rapid month-over-month growth across all dotnet repos",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_adoption.png")
     fig.savefig(path, dpi=150)
@@ -1268,7 +1306,7 @@ def chart_issue_close_rate(all_series, output_dir):
         "vscode closes ~60% within 30 days — aggressive bot-assisted triage",
         "go historically most responsive — small focused team",
         "runtime improved sharply after 2020 repo consolidation",
-    ], loc="upper left")
+    ])
     if LINEAGE_CUTOFF:
         cutoff_names = ", ".join(get_short(r) for r in LINEAGE_CUTOFF)
         ax.annotate(f"Note: {cutoff_names} shown from 2020 (pre-merge close dates unreliable)",
@@ -1344,7 +1382,7 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
         "Community = issues filed by non-maintainers",
         "Shows how quickly external bug reports get attention",
         "Lower than overall responsiveness — team issues get faster triage",
-    ], loc="upper left")
+    ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_responsiveness_comparison.png")
     fig.savefig(path, dpi=150)
