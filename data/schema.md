@@ -5,7 +5,7 @@ Generated from live database. SQLite with WAL mode.
 ## Tables
 
 ### `items` — 805,776 rows
-
+x
 Core table: every issue and PR across all tracked repos.
 
 | Column | Type | Nullable | Default | Description |

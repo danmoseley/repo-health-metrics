@@ -556,6 +556,20 @@ def add_insight_box(ax, lines, loc="upper center"):
                       alpha=0.92))
 
 
+def add_direction_arrow(ax, direction="up", x=0.06):
+    """Add a 'Better' arrow in chart whitespace. direction: 'up' or 'down'."""
+    if direction == "up":
+        xy, xytext = (x, 0.55), (x, 0.35)
+    else:
+        xy, xytext = (x, 0.35), (x, 0.55)
+    ax.annotate("", xy=xy, xytext=xytext, xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>", color="#888888", lw=2))
+    label_y = 0.57 if direction == "up" else 0.30
+    label_va = "bottom" if direction == "up" else "top"
+    ax.text(x, label_y, "Better", transform=ax.transAxes, fontsize=9,
+            ha="center", va=label_va, color="#888888", style="italic")
+
+
 def series_pct_change(dates, values, years_back=2):
     """Compute % change in a series over the last N years using averages of the
     first and last quarter to reduce noise. Returns (pct_change, start_year) or None."""
@@ -757,6 +771,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     ax.set_ylim(ymin, max(ymax, 300))
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "dotnet repos dip each Nov — freeze before annual .NET release",
         "runtime merge rate declining since late 2024 — likely driven\n  by ~10% drop in active maintainers over same period",
@@ -944,8 +959,8 @@ def chart_sustainability_score(all_series, output_dir):
             color="#888888", style="italic", va="top")
     add_insight_box(ax, [
         "Ratio >100% means closing more than opening (shrinking backlog)",
+        "runtime rose to ~115% in 2025 despite fewer maintainers — driven\n  by falling issue inflow (maturing product) not faster triage",
         "Most repos hover near 100% — roughly keeping pace",
-        "Sustained periods below 100% signal growing maintenance debt",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
@@ -957,7 +972,7 @@ def chart_sustainability_score(all_series, output_dir):
 def chart_time_to_merge(all_ttm, output_dir):
     """Median time-to-merge (days) per month, all repos. Excludes Gerrit repos."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Time to Merge PRs — 75th Percentile (12-month avg)", "Days")
+    setup_axes(ax, "Time to Merge PRs — 75th Percentile (18-month avg)", "Days")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     visible_data = []
@@ -965,7 +980,7 @@ def chart_time_to_merge(all_ttm, output_dir):
     for repo, (months, medians) in all_ttm.items():
         if not months or repo in GERRIT_REPOS:
             continue
-        smoothed = smooth(medians, window=12)
+        smoothed = smooth(medians, window=18)
         ax.plot(months, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -976,6 +991,7 @@ def chart_time_to_merge(all_ttm, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
     # Insights: current p75 TTM for each repo
     add_insight_box(ax, [
         "runtime and roslyn: fast merges (<5d p75) — strong review culture",
@@ -1055,9 +1071,10 @@ def chart_open_pr_age(all_items, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Complements TTM — TTM shows merged PRs, this shows the unmerged backlog",
-        "Rising age = PRs accumulating faster than they're being reviewed",
+        "roslyn's rising age driven by ~630 stale PRs (68% over 1yr old)\n  — a few prolific authors account for most of them",
         "maui's high age reflects long-lived partner/community PRs in queue",
     ])
     fig.tight_layout()
@@ -1091,9 +1108,9 @@ def chart_active_maintainers(all_maint, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "runtime maintainers dropped significantly since 2023",
-        "vscode steadily growing — now the largest maintainer pool",
-        "maui volatile — small team, sensitive to individual changes",
+        "runtime maintainers dropped significantly since 2023\n  — may reflect team changes post-.NET 9",
+        "vscode steadily growing — largest maintainer pool by far",
+        "maui volatile — tiny team (6-11 people), sensitive to individual changes",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "active_maintainers_comparison.png")
@@ -1125,6 +1142,7 @@ def chart_prs_per_maintainer(all_maint, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "Higher = more throughput per person (or fewer maintainers stretched thin)",
         "maui: 2-3 people merge nearly all PRs (rmarinho ~50%)",
@@ -1199,6 +1217,7 @@ def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Rising = fewer maintainers responsible for more issues",
         "runtime burden growing — maintainer count dropped while issues held steady",
@@ -1245,10 +1264,11 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Rising = each reviewer has more PRs queued for attention",
         "maui's tiny merge team (2-3 people) drives high per-person load",
-        "roslyn steady — mature process scales with consistent team size",
+        "roslyn rising sharply — 630+ open PRs (68% over 1yr old),\n  stale community PRs accumulating without being closed",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_per_maintainer.png")
@@ -1260,7 +1280,7 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
 def chart_contributor_diversity(all_items, output_dir):
     """Distinct PR authors per month (2-month rolling window) — measures community breadth."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Active Community (Distinct PR Authors, 2-Month Rolling Window)",
+    setup_axes(ax, "Active Community Contributors (Distinct PR Authors, 2-Month Window)",
                "Unique Authors")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
@@ -1302,9 +1322,10 @@ def chart_contributor_diversity(all_items, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "runtime community shrinking — down ~30% since 2024",
-        "Copilot PRs attributed to their human requester",
+        "runtime community PR authors declining ~30% since 2022\n  — correlates with falling issue openers (maturing product)",
+        "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)",
         "rust has broadest contributor base despite niche language",
     ])
     fig.tight_layout()
@@ -1372,6 +1393,7 @@ def chart_issue_community(all_items, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "Excludes maintainers — shows external community engagement only",
         "vscode dominates due to massive user base reporting bugs",
@@ -1445,12 +1467,146 @@ def chart_community_issue_volume(all_items, output_dir):
     print(f"  {path}")
 
 
+def chart_community_issue_share(all_items, output_dir):
+    """% of issues opened by community (non-maintainers) per month."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Community Share of Issues (% Non-Maintainer, 6-month avg)",
+               "% Community")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    visible_data = []
+    line_ends = []
+    has_data = False
+    for repo, items in all_items.items():
+        maintainers = set()
+        for item in items:
+            if item["is_pr"] and item.get("merged_by"):
+                maintainers.add(item["merged_by"])
+        maintainers |= BOT_ACCOUNTS
+
+        total_by_month = defaultdict(int)
+        community_by_month = defaultdict(int)
+        for item in items:
+            if item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            author = item.get("author")
+            if not cd or not author:
+                continue
+            m = cd.replace(day=1)
+            total_by_month[m] += 1
+            if author not in maintainers:
+                community_by_month[m] += 1
+
+        if not total_by_month:
+            continue
+        months = sorted(total_by_month.keys())
+        pcts = [100.0 * community_by_month.get(m, 0) / total_by_month[m]
+                if total_by_month[m] >= 10 else None for m in months]
+        valid = [(m, p) for m, p in zip(months, pcts) if p is not None]
+        if len(valid) < 6:
+            continue
+        vm, vp = zip(*valid)
+        s = smooth(list(vp), 6)
+        ax.plot(list(vm), s, color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((list(vm), s, get_short(repo), get_color(repo)))
+        has_data = True
+
+    if not has_data:
+        plt.close(fig)
+        print("  (skipping community issue share — no author data)")
+        return
+
+    ax.set_ylim(0, 100)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
+    add_insight_box(ax, [
+        "Rising share = community becoming a larger voice in the project",
+        "runtime share rising (53% to 62%) even as volume drops\n  — team filing fewer issues, community holding steady",
+        "maui near 90% — overwhelmingly community-driven issue tracker",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "community_issue_share.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_community_pr_share(all_items, output_dir):
+    """% of PRs opened by community (non-maintainers) per month."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Community Share of PRs (% Non-Maintainer, 6-month avg)",
+               "% Community")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    visible_data = []
+    line_ends = []
+    for repo, items in all_items.items():
+        if repo in GERRIT_REPOS:
+            continue
+        maintainers = set()
+        for item in items:
+            if item["is_pr"] and item.get("merged_by"):
+                maintainers.add(item["merged_by"])
+        maintainers |= BOT_ACCOUNTS
+
+        total_by_month = defaultdict(int)
+        community_by_month = defaultdict(int)
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            author = effective_author(item)
+            if not cd or not author:
+                continue
+            m = cd.replace(day=1)
+            total_by_month[m] += 1
+            if author not in maintainers:
+                community_by_month[m] += 1
+
+        if not total_by_month:
+            continue
+        months = sorted(total_by_month.keys())
+        pcts = [100.0 * community_by_month.get(m, 0) / total_by_month[m]
+                if total_by_month[m] >= 10 else None for m in months]
+        valid = [(m, p) for m, p in zip(months, pcts) if p is not None]
+        if len(valid) < 6:
+            continue
+        vm, vp = zip(*valid)
+        s = smooth(list(vp), 6)
+        ax.plot(list(vm), s, color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((list(vm), s, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ax.set_ylim(0, 100)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "vscode ~92% community PRs — almost entirely external contributors",
+        "runtime ~70% community — healthy mix of team + external",
+        "Copilot PRs attributed to human requester (not inflating community %)",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "community_pr_share.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 COPILOT_AUTHORS = {"copilot-swe-agent[bot]", "Copilot"}
 
 def chart_copilot_adoption(all_items, output_dir):
     """Copilot-authored PRs as % of all PRs per month, per repo."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot PRs as % of All PRs (3-month rolling avg)", "% of PRs")
+    setup_axes(ax, "Copilot PRs as % of All PRs (Monthly)", "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     line_ends = []
@@ -1478,7 +1634,7 @@ def chart_copilot_adoption(all_items, output_dir):
             continue
         pcts = [100.0 * copilot_by_month.get(m, 0) / total_by_month[m]
                 for m in months]
-        smoothed = smooth(pcts, 3)
+        smoothed = smooth(pcts, 1)
         ax.plot(months, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=2, alpha=0.85)
@@ -1487,6 +1643,7 @@ def chart_copilot_adoption(all_items, output_dir):
     ax.set_ylim(0, None)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "Shows adoption of Copilot SWE Agent for PR creation",
         "runtime is early/aggressive adopter — reflects team investment",
@@ -1549,6 +1706,7 @@ def chart_issue_close_rate(all_series, output_dir):
     ax.set_ylim(0, 100)
     ax.legend(loc="upper right", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "vscode closes ~60% within 30 days — aggressive bot-assisted triage",
         "go historically most responsive — small focused team",
@@ -1625,10 +1783,11 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
     ax.set_ylim(0, 100)
     ax.legend(loc="upper right", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "Community = issues filed by non-maintainers",
-        "Shows how quickly external bug reports get attention",
-        "Lower than overall responsiveness — team issues get faster triage",
+        "Most repos hold steady over time — community response quality is consistent",
+        "aspire and maui recently declining — possible team bandwidth pressure",
+        "Lower than overall responsiveness — team issues always get faster triage",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_responsiveness_comparison.png")
@@ -1706,10 +1865,11 @@ def chart_community_time_to_close(all_items, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Measures how long community bug reports actually take to resolve",
-        "Rising trend = community issues sitting longer before resolution",
-        "Complements responsiveness % — this shows severity of the slow cases",
+        "roslyn dwarfs others — likely driven by long-lived language feature\n  proposals and complex compiler bugs needing deep expertise",
+        "go and rust will appear once issue author backfill completes",
+        "Rising trend = community losing patience waiting for resolution",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
@@ -1794,10 +1954,11 @@ def chart_community_issue_age(all_items, output_dir):
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Rising = community issues piling up unanswered",
         "Falling = team is actively working down the community backlog",
-        "High age + high volume = community losing patience with the project",
+        "go's flat line is partial data (author backfill incomplete past 2015)",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_age.png")
@@ -1905,6 +2066,8 @@ def main():
             chart_copilot_adoption(all_items, output_dir)
             chart_issue_community(all_items, output_dir)
             chart_community_issue_volume(all_items, output_dir)
+            chart_community_issue_share(all_items, output_dir)
+            chart_community_pr_share(all_items, output_dir)
             chart_community_responsiveness(all_items, all_maint, output_dir)
             chart_community_time_to_close(all_items, output_dir)
             chart_community_issue_age(all_items, output_dir)
