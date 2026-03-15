@@ -280,8 +280,9 @@ def compute_monthly_maintainer_stats(items):
         window_mergers = set(mergers_by_month[m])
         if i > 0:
             prev = months[i - 1]
-            # Only include prior month if it's actually adjacent
-            if (m - prev).days <= 62:
+            # Only include if exactly 1 calendar month apart
+            prev_month_diff = (m.year - prev.year) * 12 + (m.month - prev.month)
+            if prev_month_diff == 1:
                 window_mergers |= mergers_by_month[prev]
 
         n_maintainers = len(window_mergers)
