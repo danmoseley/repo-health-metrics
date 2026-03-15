@@ -13,6 +13,7 @@
   .toc { background: white; padding: 16px 24px; border-radius: 6px; margin-bottom: 30px; display: inline-block; }
   .toc a { display: block; margin: 4px 0; color: #007ACC; text-decoration: none; }
   .toc a:hover { text-decoration: underline; }
+  .toc .section { font-weight: bold; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -21,31 +22,51 @@
 
 <div class="toc">
   <strong>Contents</strong>
-  <a href="#comparison">Comparison Charts</a>
-  <a href="#dashboards">Per-Repo Dashboards</a>
+  <span class="section">Comparison Charts</span>
+  <a href="#open-issues">Open Issues Over Time</a>
+  <a href="#open-prs">Open Pull Requests Over Time</a>
+  <a href="#net-flow">Net Issue Flow</a>
+  <a href="#merge-rate">PR Merge Rate</a>
+  <a href="#close-ratio">Issue Close Ratio</a>
+  <a href="#ttm">Time to Merge</a>
+  <a href="#responsiveness">Issue Responsiveness</a>
+  <a href="#maintainers">Active Maintainers</a>
+  <a href="#prs-per-maint">PRs Merged per Maintainer</a>
+  <a href="#issues-per-maint">Open Issues per Maintainer</a>
+  <a href="#prs-open-per-maint">Open PRs per Maintainer</a>
+  <a href="#community">Active Community</a>
+  <span class="section">Per-Repo Dashboards</span>
+  <a href="#dash-runtime">runtime</a>
+  <a href="#dash-roslyn">roslyn</a>
+  <a href="#dash-maui">maui</a>
+  <a href="#dash-vscode">vscode</a>
+  <a href="#dash-rust">rust</a>
+  <a href="#dash-go">go</a>
 </div>
 
 <h2 id="comparison">Comparison Charts</h2>
 
-<div class="chart"><img src="open_issues_comparison.png" alt="Open Issues"></div>
-<div class="chart"><img src="open_prs_comparison.png" alt="Open PRs"></div>
-<div class="chart"><img src="net_issue_flow_comparison.png" alt="Net Issue Flow"></div>
-<div class="chart"><img src="pr_merge_rate_comparison.png" alt="PR Merge Rate"></div>
-<div class="chart"><img src="sustainability_score.png" alt="Sustainability Score"></div>
-<div class="chart"><img src="time_to_merge_comparison.png" alt="Time to Merge"></div>
-<div class="chart"><img src="issue_responsiveness_comparison.png" alt="Issue Responsiveness"></div>
-<div class="chart"><img src="active_maintainers_comparison.png" alt="Active Maintainers"></div>
-<div class="chart"><img src="prs_per_maintainer_comparison.png" alt="PRs per Maintainer"></div>
-<div class="chart"><img src="contributor_diversity_comparison.png" alt="Contributor Diversity"></div>
+<div class="chart" id="open-issues"><img src="open_issues_comparison.png" alt="Open Issues"></div>
+<div class="chart" id="open-prs"><img src="open_prs_comparison.png" alt="Open PRs"></div>
+<div class="chart" id="net-flow"><img src="net_issue_flow_comparison.png" alt="Net Issue Flow"></div>
+<div class="chart" id="merge-rate"><img src="pr_merge_rate_comparison.png" alt="PR Merge Rate"></div>
+<div class="chart" id="close-ratio"><img src="sustainability_score.png" alt="Issue Close Ratio"></div>
+<div class="chart" id="ttm"><img src="time_to_merge_comparison.png" alt="Time to Merge"></div>
+<div class="chart" id="responsiveness"><img src="issue_responsiveness_comparison.png" alt="Issue Responsiveness"></div>
+<div class="chart" id="maintainers"><img src="active_maintainers_comparison.png" alt="Active Maintainers"></div>
+<div class="chart" id="prs-per-maint"><img src="prs_per_maintainer_comparison.png" alt="PRs per Maintainer"></div>
+<div class="chart" id="issues-per-maint"><img src="open_issues_per_maintainer.png" alt="Open Issues per Maintainer"></div>
+<div class="chart" id="prs-open-per-maint"><img src="open_prs_per_maintainer.png" alt="Open PRs per Maintainer"></div>
+<div class="chart" id="community"><img src="contributor_diversity_comparison.png" alt="Contributor Diversity"></div>
 
 <h2 id="dashboards">Per-Repo Dashboards</h2>
 
-<div class="chart"><img src="dashboard_dotnet_runtime.png" alt="runtime dashboard"></div>
-<div class="chart"><img src="dashboard_dotnet_roslyn.png" alt="roslyn dashboard"></div>
-<div class="chart"><img src="dashboard_dotnet_maui.png" alt="maui dashboard"></div>
-<div class="chart"><img src="dashboard_microsoft_vscode.png" alt="vscode dashboard"></div>
-<div class="chart"><img src="dashboard_rust-lang_rust.png" alt="rust dashboard"></div>
-<div class="chart"><img src="dashboard_golang_go.png" alt="go dashboard"></div>
+<div class="chart" id="dash-runtime"><img src="dashboard_dotnet_runtime.png" alt="runtime dashboard"></div>
+<div class="chart" id="dash-roslyn"><img src="dashboard_dotnet_roslyn.png" alt="roslyn dashboard"></div>
+<div class="chart" id="dash-maui"><img src="dashboard_dotnet_maui.png" alt="maui dashboard"></div>
+<div class="chart" id="dash-vscode"><img src="dashboard_microsoft_vscode.png" alt="vscode dashboard"></div>
+<div class="chart" id="dash-rust"><img src="dashboard_rust-lang_rust.png" alt="rust dashboard"></div>
+<div class="chart" id="dash-go"><img src="dashboard_golang_go.png" alt="go dashboard"></div>
 
 </body>
 </html>

@@ -1044,6 +1044,125 @@ def chart_prs_per_maintainer(all_maint, output_dir):
     print(f"  {path}")
 
 
+def _interpolate_maintainers_to_weeks(weeks, maint_months, maint_counts):
+    """Map monthly maintainer counts to weekly dates via nearest-month lookup."""
+    if not maint_months or not weeks:
+        return None
+    month_map = {m: c for m, c in zip(maint_months, maint_counts)}
+    result = []
+    for w in weeks:
+        # Find nearest month
+        wm = w.replace(day=1)
+        count = month_map.get(wm)
+        if count is None:
+            # Try prior month
+            if wm.month == 1:
+                prev = wm.replace(year=wm.year - 1, month=12)
+            else:
+                prev = wm.replace(month=wm.month - 1)
+            count = month_map.get(prev, 0)
+        result.append(count)
+    return result
+
+
+def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
+    """Open issues divided by active maintainers — shows burden per person."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Open Issues per Active Maintainer", "Issues / Maintainer")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    excluded = GERRIT_REPOS | BOT_MERGER_REPOS
+    visible_data = []
+    line_ends = []
+    for repo, series in all_series.items():
+        if not series or repo in excluded:
+            continue
+        maint_data = all_maint.get(repo)
+        if not maint_data or not maint_data[0]:
+            continue
+        months, maintainers, _, _ = maint_data
+        weekly_maint = _interpolate_maintainers_to_weeks(series["weeks"], months, maintainers)
+        if not weekly_maint:
+            continue
+        ratio = [oi / max(m, 1) for oi, m in zip(series["open_issues"], weekly_maint)]
+        s = smooth(ratio, window=13)
+        ax.plot(series["weeks"], s, color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((series["weeks"], s, get_short(repo), get_color(repo)))
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    # Insights
+    insights = []
+    for dates, vals, name, color in line_ends:
+        r = series_pct_change(dates, vals, years_back=2)
+        if r:
+            direction = "up" if r[0] > 0 else "down"
+            insights.append((r[0], f"{name}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
+    insights.sort(reverse=True)
+    if insights:
+        lines = [i[1] for i in insights[:4]]
+        lines.insert(0, "Growing = each maintainer responsible for more issues")
+        add_insight_box(ax, lines, loc="lower right")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "open_issues_per_maintainer.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
+    """Open PRs divided by active maintainers — shows review burden per person."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Open PRs per Active Maintainer", "PRs / Maintainer")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    excluded = GERRIT_REPOS | BOT_MERGER_REPOS
+    visible_data = []
+    line_ends = []
+    for repo, series in all_series.items():
+        if not series or repo in excluded:
+            continue
+        maint_data = all_maint.get(repo)
+        if not maint_data or not maint_data[0]:
+            continue
+        months, maintainers, _, _ = maint_data
+        weekly_maint = _interpolate_maintainers_to_weeks(series["weeks"], months, maintainers)
+        if not weekly_maint:
+            continue
+        ratio = [op / max(m, 1) for op, m in zip(series["open_prs"], weekly_maint)]
+        s = smooth(ratio, window=13)
+        ax.plot(series["weeks"], s, color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(s)
+        line_ends.append((series["weeks"], s, get_short(repo), get_color(repo)))
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(ymin, ymax)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    # Insights
+    insights = []
+    for dates, vals, name, color in line_ends:
+        r = series_pct_change(dates, vals, years_back=2)
+        if r:
+            direction = "up" if r[0] > 0 else "down"
+            insights.append((r[0], f"{name}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
+    insights.sort(reverse=True)
+    if insights:
+        lines = [i[1] for i in insights[:4]]
+        lines.insert(0, "Growing = each maintainer has more PRs to review")
+        add_insight_box(ax, lines, loc="lower right")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "open_prs_per_maintainer.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def chart_contributor_diversity(all_items, output_dir):
     """Distinct PR authors per month (2-month rolling window) — measures community breadth."""
     fig, ax = plt.subplots(figsize=(14, 7))
@@ -1277,6 +1396,8 @@ def main():
         if has_maintainer_data:
             chart_active_maintainers(all_maint, output_dir)
             chart_prs_per_maintainer(all_maint, output_dir)
+            chart_open_issues_per_maintainer(all_series, all_maint, output_dir)
+            chart_open_prs_per_maintainer(all_series, all_maint, output_dir)
             chart_contributor_diversity(all_items, output_dir)
         else:
             print("  (skipping maintainer charts — no author/merged_by data yet)")
