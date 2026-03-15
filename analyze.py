@@ -563,7 +563,8 @@ def add_direction_arrow(ax, direction="up", x=0.06):
     else:
         xy, xytext = (x, 0.35), (x, 0.55)
     ax.annotate("", xy=xy, xytext=xytext, xycoords="axes fraction",
-                arrowprops=dict(arrowstyle="-|>", color="black", lw=2))
+                arrowprops=dict(arrowstyle="-|>,head_width=0.6,head_length=0.4",
+                                color="black", lw=3))
     label_y = 0.57 if direction == "up" else 0.30
     label_va = "bottom" if direction == "up" else "top"
     ax.text(x, label_y, "Better", transform=ax.transAxes, fontsize=9,
@@ -786,16 +787,20 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     print(f"  {path}")
 
 
-def _dashboard_insight(ax, text, loc="lower right"):
-    """Small insight annotation for dashboard sub-panels."""
-    x = 0.98 if "right" in loc else 0.02
-    y = 0.03 if "lower" in loc else 0.97
-    ha = "right" if "right" in loc else "left"
-    va = "bottom" if "lower" in loc else "top"
-    ax.text(x, y, text, transform=ax.transAxes, fontsize=8,
-            va=va, ha=ha, family="sans-serif", style="italic", color="#555555",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#dddddd",
-                      alpha=0.85))
+def _dashboard_insight(ax, text, loc="upper center"):
+    """Small insight annotation for dashboard sub-panels, matching main chart style."""
+    positions = {
+        "upper center": (0.50, 0.97, "center", "top"),
+        "lower left":   (0.02, 0.03, "left",   "bottom"),
+        "lower right":  (0.98, 0.03, "right",  "bottom"),
+        "upper left":   (0.02, 0.97, "left",   "top"),
+        "upper right":  (0.98, 0.97, "right",  "top"),
+    }
+    x, y, ha, va = positions.get(loc, positions["upper center"])
+    ax.text(x, y, f"• {text}", transform=ax.transAxes, fontsize=8,
+            va=va, ha=ha, multialignment="left", family="sans-serif",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#cccccc",
+                      alpha=0.92))
 
 
 def chart_per_repo_dashboard(repo, series, output_dir):
@@ -1596,7 +1601,7 @@ def chart_community_pr_share(all_items, output_dir):
         "vscode ~92% community PRs — almost entirely external contributors",
         "runtime ~70% community — healthy mix of team + external",
         "maui community share surged mid-2024 with Syncfusion partnership\n  — 22 dedicated engineers now contributing regularly",
-        "rust near 100% is misleading — bors bot merges all PRs, so only\n  34 accounts detected as maintainers vs ~6,200 actual contributors",
+        "rust near 100% is misleading — we detect maintainers via merged_by,\n  but bors merges everything, so real team members look like community",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pr_share.png")
@@ -1610,7 +1615,7 @@ COPILOT_AUTHORS = {"copilot-swe-agent[bot]", "Copilot"}
 def chart_copilot_adoption(all_items, output_dir):
     """Copilot-authored PRs as % of all PRs, weekly with 2-week smoothing."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot PRs as % of All PRs (2-week avg)", "% of PRs")
+    setup_axes(ax, "Copilot PRs as % of All PRs (4-week avg)", "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     line_ends = []
@@ -1648,7 +1653,7 @@ def chart_copilot_adoption(all_items, output_dir):
                 if total_by_week[w] >= 5 else None for w in weeks]
         # Fill None with 0 for smoothing
         pcts_clean = [p if p is not None else 0.0 for p in pcts]
-        smoothed = smooth(pcts_clean, 2)
+        smoothed = smooth(pcts_clean, 4)
         ax.plot(weeks, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=2, alpha=0.85)
@@ -1882,8 +1887,8 @@ def chart_community_time_to_close(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "CAUTION: recent decline is survivorship bias — slow-to-close issues\n  from recent years haven't closed yet (2025: 29% still open vs 7% for 2020)",
         "roslyn dwarfs others — confirmed by label data: feature requests\n  take 248d median vs 70d for bugs (p75 is 3 years vs 1.9 years)",
+        "roslyn's bulk housekeeping closures (2022, 2024) of old issues\n  push p75 even higher in those years",
         "go and rust will appear once issue author backfill completes",
     ])
     fig.tight_layout()
