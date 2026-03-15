@@ -10,10 +10,11 @@
   h2 { color: #444; border-bottom: 2px solid #ddd; padding-bottom: 6px; margin-top: 40px; }
   .chart { text-align: center; margin: 20px 0; }
   .chart img { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; background: white; }
-  .toc { background: white; padding: 16px 24px; border-radius: 6px; margin-bottom: 30px; display: inline-block; }
-  .toc a { display: block; margin: 4px 0; color: #007ACC; text-decoration: none; }
-  .toc a:hover { text-decoration: underline; }
-  .toc .section { font-weight: bold; margin-top: 10px; }
+  .toc { background: white; padding: 16px 24px; border-radius: 6px; margin-bottom: 30px; display: flex; gap: 40px; }
+  .toc-col a { display: block; margin: 4px 0; color: #007ACC; text-decoration: none; font-size: 14px; }
+  .toc-col a:hover { text-decoration: underline; }
+  .toc-col .section { font-weight: bold; margin-top: 10px; display: block; }
+  .toc-col .section:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -21,27 +22,31 @@
 <p class="subtitle">dotnet/runtime · dotnet/roslyn · dotnet/maui · microsoft/vscode · rust-lang/rust · golang/go</p>
 
 <div class="toc">
-  <strong>Contents</strong>
-  <span class="section">Comparison Charts</span>
-  <a href="#open-issues">Open Issues Over Time</a>
-  <a href="#open-prs">Open Pull Requests Over Time</a>
-  <a href="#net-flow">Net Issue Flow</a>
-  <a href="#merge-rate">PR Merge Rate</a>
-  <a href="#close-ratio">Issue Close Ratio</a>
-  <a href="#ttm">Time to Merge</a>
-  <a href="#responsiveness">Issue Responsiveness</a>
-  <a href="#maintainers">Active Maintainers</a>
-  <a href="#prs-per-maint">PRs Merged per Maintainer</a>
-  <a href="#issues-per-maint">Open Issues per Maintainer</a>
-  <a href="#prs-open-per-maint">Open PRs per Maintainer</a>
-  <a href="#community">Active Community</a>
-  <span class="section">Per-Repo Dashboards</span>
-  <a href="#dash-runtime">runtime</a>
-  <a href="#dash-roslyn">roslyn</a>
-  <a href="#dash-maui">maui</a>
-  <a href="#dash-vscode">vscode</a>
-  <a href="#dash-rust">rust</a>
-  <a href="#dash-go">go</a>
+  <div class="toc-col">
+    <span class="section">Comparison Charts</span>
+    <a href="#open-issues">Open Issues Over Time</a>
+    <a href="#open-prs">Open Pull Requests Over Time</a>
+    <a href="#net-flow">Net Issue Flow</a>
+    <a href="#merge-rate">PR Merge Rate</a>
+    <a href="#close-ratio">Issue Close Ratio</a>
+    <a href="#ttm">Time to Merge</a>
+    <a href="#responsiveness">Issue Responsiveness</a>
+  </div>
+  <div class="toc-col">
+    <span class="section">Maintainer &amp; Community</span>
+    <a href="#maintainers">Active Maintainers</a>
+    <a href="#prs-per-maint">PRs Merged per Maintainer</a>
+    <a href="#issues-per-maint">Open Issues per Maintainer</a>
+    <a href="#prs-open-per-maint">Open PRs per Maintainer</a>
+    <a href="#community">Active Community</a>
+    <span class="section">Per-Repo Dashboards</span>
+    <a href="#dash-runtime">runtime</a>
+    <a href="#dash-roslyn">roslyn</a>
+    <a href="#dash-maui">maui</a>
+    <a href="#dash-vscode">vscode</a>
+    <a href="#dash-rust">rust</a>
+    <a href="#dash-go">go</a>
+  </div>
 </div>
 
 <h2 id="comparison">Comparison Charts</h2>
