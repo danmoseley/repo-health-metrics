@@ -432,8 +432,12 @@ def robust_ylim(data_series_list, padding=1.3, symmetric=False, percentile=0.95)
 
 
 def thousands_formatter(x, pos):
-    if x >= 1000:
-        return f"{x/1000:.0f}K"
+    if abs(x) >= 1000:
+        val = x / 1000
+        # Use 1 decimal if it would disambiguate (e.g. 3.5K vs 4K)
+        if val != int(val):
+            return f"{val:.1f}K"
+        return f"{val:.0f}K"
     return f"{x:.0f}"
 
 
