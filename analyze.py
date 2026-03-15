@@ -409,13 +409,21 @@ def compute_monthly_maintainer_stats(items):
 
 
 def smooth(data, window=4):
-    """Simple moving average smoother."""
+    """Gaussian-weighted trailing moving average.
+    Uses a half-Gaussian kernel so recent points are weighted most heavily
+    and there's no step artifact when points enter/leave the window."""
+    import math
     if len(data) < window:
         return data
+    # Precompute Gaussian weights (sigma = window/3 gives ~99.7% within window)
+    sigma = window / 3.0
+    weights = [math.exp(-0.5 * (d / sigma) ** 2) for d in range(window)]
     smoothed = []
     for i in range(len(data)):
         start = max(0, i - window + 1)
-        smoothed.append(sum(data[start:i+1]) / (i - start + 1))
+        span = data[start:i + 1]
+        w = weights[:len(span)][::-1]  # most recent gets weights[0]=1.0
+        smoothed.append(sum(v * wt for v, wt in zip(span, w)) / sum(w))
     return smoothed
 
 
@@ -496,7 +504,9 @@ def label_line_ends(ax, lines_info):
             adjusted_y[i] = adjusted_y[i - 1] + min_gap
 
     for (x, orig_y, name, color), adj_y in zip(endpoints, adjusted_y):
-        ax.annotate(f" {name}", xy=(x, orig_y), xytext=(x, adj_y),
+        # Clamp label position to within axis limits so tight_layout isn't distorted
+        clamped_y = max(ylim[0], min(adj_y, ylim[1]))
+        ax.annotate(f" {name}", xy=(x, min(orig_y, ylim[1])), xytext=(x, clamped_y),
                     fontsize=8, color=color, fontweight="bold",
                     va="center", ha="left",
                     annotation_clip=False)
@@ -517,14 +527,18 @@ def setup_axes(ax, title, ylabel):
     ax.spines["right"].set_visible(False)
 
 
-def add_insight_box(ax, lines, loc="lower left"):
+def add_insight_box(ax, lines, loc="upper center"):
     """Add a small text box with observation bullets to the chart.
-    lines: list of short strings. loc: 'lower right', 'upper right', 'lower left', 'upper left'."""
+    loc: 'upper center' (below title), 'lower left', 'lower right', 'upper left', 'upper right'."""
     text = "\n".join(f"• {l}" for l in lines)
-    x = {"lower right": 0.98, "upper right": 0.98, "lower left": 0.02, "upper left": 0.02}[loc]
-    y = {"lower right": 0.03, "upper right": 0.97, "lower left": 0.03, "upper left": 0.97}[loc]
-    ha = "right" if "right" in loc else "left"
-    va = "bottom" if "lower" in loc else "top"
+    positions = {
+        "upper center": (0.50, 0.97, "center", "top"),
+        "lower left":   (0.02, 0.03, "left",   "bottom"),
+        "lower right":  (0.98, 0.03, "right",  "bottom"),
+        "upper left":   (0.02, 0.97, "left",   "top"),
+        "upper right":  (0.98, 0.97, "right",  "top"),
+    }
+    x, y, ha, va = positions[loc]
     ax.text(x, y, text, transform=ax.transAxes, fontsize=9.5,
             va=va, ha=ha, family="sans-serif", zorder=10,
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc",
@@ -656,7 +670,7 @@ def chart_open_prs_comparison(all_series, output_dir):
 def chart_net_flow_comparison(all_series, output_dir):
     """Net issue flow (opened - closed per week), smoothed, Y-axis clamped."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Net Issue Flow (Opened - Closed per Week, 26-week avg)",
+    setup_axes(ax, "Net Issue Flow (Opened − Closed per Week, 26-week avg)",
                "Net Issues / Week")
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
@@ -666,14 +680,14 @@ def chart_net_flow_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        # Smooth opened and closed separately, then subtract — avoids
-        # single-week closure spikes rippling through the difference
         so = smooth(series["issue_opened"], window=26)
         sc = smooth(series["issue_closed"], window=26)
         smoothed = [o - c for o, c in zip(so, sc)]
+        alpha = 0.4 if repo == "microsoft/vscode" else 0.85
+        lw = 1.2 if repo == "microsoft/vscode" else 1.5
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
-                linewidth=1.5, alpha=0.85)
+                linewidth=lw, alpha=alpha)
         visible_data.append(smoothed)
         line_ends.append((series["weeks"], smoothed, get_short(repo), get_color(repo)))
 
@@ -770,12 +784,13 @@ def chart_per_repo_dashboard(repo, series, output_dir):
     setup_axes(ax, "Open Issues", "Count")
     ax.plot(weeks, series["open_issues"], color=color, linewidth=1.5)
     ax.fill_between(weeks, series["open_issues"], alpha=0.15, color=color)
-    # Insight: trend direction
     oi = series["open_issues"]
     if len(oi) >= 52:
         delta = oi[-1] - oi[-52]
-        direction = "rising" if delta > 0 else "falling"
-        _dashboard_insight(ax, f"Backlog {direction} ({delta:+,} in last year)")
+        if delta > 0:
+            _dashboard_insight(ax, f"Backlog growing — typical pattern across all repos ({delta:+,}/yr)")
+        else:
+            _dashboard_insight(ax, f"Backlog shrinking — unusual and positive ({delta:+,}/yr)")
 
     # Panel 2: Open PRs
     ax = axes[0, 1]
@@ -789,8 +804,12 @@ def chart_per_repo_dashboard(repo, series, output_dir):
                     color="#888888", style="italic")
     elif len(series["open_prs"]) >= 52:
         delta = series["open_prs"][-1] - series["open_prs"][-52]
-        direction = "growing" if delta > 0 else "shrinking"
-        _dashboard_insight(ax, f"Review queue {direction} ({delta:+,} in last year)")
+        if delta > 50:
+            _dashboard_insight(ax, f"Review queue growing — may need more reviewers ({delta:+,}/yr)")
+        elif delta < -50:
+            _dashboard_insight(ax, f"Review queue shrinking — team clearing backlog ({delta:+,}/yr)")
+        else:
+            _dashboard_insight(ax, "Review queue stable")
 
     # Panel 3: Issue inflow vs outflow (smoothed, clamped) + yearly net bars
     ax = axes[1, 0]
@@ -809,14 +828,17 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         p95 = sorted(all_vals)[int(len(all_vals) * 0.95)]
         ax.set_ylim(-p95 * 0.4, p95 * 1.5)
     ax.legend(fontsize=9)
-    # Insight: are we keeping up?
     if len(series["issue_opened"]) >= 52:
         recent_opened = sum(series["issue_opened"][-52:])
         recent_closed = sum(series["issue_closed"][-52:])
         if recent_opened > 0:
             ratio = recent_closed / recent_opened
-            status = "keeping pace" if ratio > 0.95 else "falling behind"
-            _dashboard_insight(ax, f"Last year: {status} (close ratio {ratio:.0%})")
+            if ratio > 1.05:
+                _dashboard_insight(ax, f"Closing faster than opening — actively reducing debt ({ratio:.0%})")
+            elif ratio > 0.95:
+                _dashboard_insight(ax, f"Roughly keeping pace — typical for mature repos ({ratio:.0%})")
+            else:
+                _dashboard_insight(ax, f"Opening faster than closing — debt accumulating ({ratio:.0%})")
 
     # Panel 4: PRs opened vs merged (smoothed, clamped) + yearly net bars
     ax = axes[1, 1]
@@ -833,14 +855,17 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         p95 = sorted(all_vals)[int(len(all_vals) * 0.95)]
         ax.set_ylim(-p95 * 0.4, p95 * 1.5)
     ax.legend(fontsize=9)
-    # Insight: merge rate trend
     if len(series["pr_merged"]) >= 104:
         recent = sum(series["pr_merged"][-52:])
         prior = sum(series["pr_merged"][-104:-52])
         if prior > 0:
             change = (recent - prior) / prior
-            trend = "accelerating" if change > 0.05 else ("slowing" if change < -0.05 else "steady")
-            _dashboard_insight(ax, f"Merge rate {trend} vs prior year ({change:+.0%})")
+            if change > 0.1:
+                _dashboard_insight(ax, f"Merge rate accelerating — team throughput up {change:+.0%} YoY")
+            elif change < -0.1:
+                _dashboard_insight(ax, f"Merge rate declining — may reflect fewer contributors ({change:+.0%} YoY)")
+            else:
+                _dashboard_insight(ax, "Merge rate steady — sustainable pace")
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     safe_name = repo.replace("/", "_")
