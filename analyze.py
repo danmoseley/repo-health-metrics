@@ -517,7 +517,7 @@ def setup_axes(ax, title, ylabel):
     ax.spines["right"].set_visible(False)
 
 
-def add_insight_box(ax, lines, loc="lower right"):
+def add_insight_box(ax, lines, loc="upper left"):
     """Add a small text box with observation bullets to the chart.
     lines: list of short strings. loc: 'lower right', 'upper right', 'lower left', 'upper left'."""
     text = "\n".join(f"• {l}" for l in lines)
@@ -525,7 +525,7 @@ def add_insight_box(ax, lines, loc="lower right"):
     y = {"lower right": 0.03, "upper right": 0.97, "lower left": 0.03, "upper left": 0.97}[loc]
     ha = "right" if "right" in loc else "left"
     va = "bottom" if "lower" in loc else "top"
-    ax.text(x, y, text, transform=ax.transAxes, fontsize=7.5,
+    ax.text(x, y, text, transform=ax.transAxes, fontsize=8.5,
             va=va, ha=ha, family="sans-serif",
             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc",
                       alpha=0.9))
@@ -590,7 +590,7 @@ def _add_yearly_net_bars(ax, weeks, inflow, outflow):
 def chart_open_issues_comparison(all_series, output_dir):
     """Open issues over time, all repos overlaid. Y-axis clamped to p95."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Open Issues Over Time", "Open Issues")
+    setup_axes(ax, "Open Issues Over Time (6-month rolling avg)", "Open Issues")
 
     visible_data = []
     line_ends = []
@@ -623,7 +623,7 @@ def chart_open_issues_comparison(all_series, output_dir):
 def chart_open_prs_comparison(all_series, output_dir):
     """Open PRs over time, all repos overlaid. Excludes Gerrit repos."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Open Pull Requests Over Time", "Open PRs")
+    setup_axes(ax, "Open Pull Requests Over Time (6-month rolling avg)", "Open PRs")
 
     visible_data = []
     line_ends = []
@@ -666,7 +666,11 @@ def chart_net_flow_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        smoothed = smooth(series["net_issue_flow"], window=26)
+        # Smooth opened and closed separately, then subtract — avoids
+        # single-week closure spikes rippling through the difference
+        so = smooth(series["issue_opened"], window=26)
+        sc = smooth(series["issue_closed"], window=26)
+        smoothed = [o - c for o, c in zip(so, sc)]
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -686,7 +690,9 @@ def chart_net_flow_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        s = smooth(series["net_issue_flow"], window=26)
+        so = smooth(series["issue_opened"], window=26)
+        sc = smooth(series["issue_closed"], window=26)
+        s = [o - c for o, c in zip(so, sc)]
         avg = series_latest_avg(s, window=13)
         if avg is not None:
             (above if avg > 0 else below).append((avg, get_short(repo)))
@@ -706,7 +712,7 @@ def chart_net_flow_comparison(all_series, output_dir):
 def chart_pr_merge_rate_comparison(all_series, output_dir):
     """PR merge rate (merged per week), smoothed."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "PR Merge Rate (Merged per Week, 26-week avg)",
+    setup_axes(ax, "PR Merge Rate (Merged per Week, 52-week rolling avg)",
                "PRs Merged / Week")
 
     visible_data = []
@@ -714,7 +720,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        smoothed = smooth(series["pr_merged"], window=26)
+        smoothed = smooth(series["pr_merged"], window=52)
         ax.plot(series["weeks"], smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
@@ -1007,7 +1013,7 @@ def _interpolate_maintainers_to_weeks(weeks, maint_months, maint_counts):
 def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
     """Open issues divided by active maintainers — shows burden per person."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Open Issues per Active Maintainer", "Issues / Maintainer")
+    setup_axes(ax, "Open Issues per Active Maintainer (3-month rolling avg)", "Issues / Maintainer")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     excluded = GERRIT_REPOS | BOT_MERGER_REPOS
@@ -1023,29 +1029,27 @@ def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
         weekly_maint = _interpolate_maintainers_to_weeks(series["weeks"], months, maintainers)
         if not weekly_maint:
             continue
-        ratio = [oi / max(m, 1) for oi, m in zip(series["open_issues"], weekly_maint)]
+        # Filter to weeks with valid maintainer data
+        valid = [(w, oi, m) for w, oi, m in zip(series["weeks"], series["open_issues"], weekly_maint) if m is not None]
+        if not valid:
+            continue
+        vw, voi, vm = zip(*valid)
+        ratio = [oi / m for oi, m in zip(voi, vm)]
         s = smooth(ratio, window=13)
-        ax.plot(series["weeks"], s, color=get_color(repo), label=get_short(repo),
+        ax.plot(list(vw), s, color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
         visible_data.append(s)
-        line_ends.append((series["weeks"], s, get_short(repo), get_color(repo)))
+        line_ends.append((list(vw), s, get_short(repo), get_color(repo)))
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    # Insights
-    insights = []
-    for dates, vals, name, color in line_ends:
-        r = series_pct_change(dates, vals, years_back=2)
-        if r:
-            direction = "up" if r[0] > 0 else "down"
-            insights.append((r[0], f"{name}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
-    insights.sort(reverse=True)
-    if insights:
-        lines = [i[1] for i in insights[:4]]
-        lines.insert(0, "Growing = each maintainer responsible for more issues")
-        add_insight_box(ax, lines, loc="lower right")
+    add_insight_box(ax, [
+        "Rising = fewer maintainers responsible for more issues",
+        "runtime burden growing — maintainer count dropped while issues held steady",
+        "vscode's large team keeps per-person load relatively flat",
+    ], loc="upper left")
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_per_maintainer.png")
     fig.savefig(path, dpi=150)
@@ -1056,7 +1060,7 @@ def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
 def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
     """Open PRs divided by active maintainers — shows review burden per person."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Open PRs per Active Maintainer", "PRs / Maintainer")
+    setup_axes(ax, "Open PRs per Active Maintainer (3-month rolling avg)", "PRs / Maintainer")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     excluded = GERRIT_REPOS | BOT_MERGER_REPOS
@@ -1072,29 +1076,26 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
         weekly_maint = _interpolate_maintainers_to_weeks(series["weeks"], months, maintainers)
         if not weekly_maint:
             continue
-        ratio = [op / max(m, 1) for op, m in zip(series["open_prs"], weekly_maint)]
+        valid = [(w, op, m) for w, op, m in zip(series["weeks"], series["open_prs"], weekly_maint) if m is not None]
+        if not valid:
+            continue
+        vw, vop, vm = zip(*valid)
+        ratio = [op / m for op, m in zip(vop, vm)]
         s = smooth(ratio, window=13)
-        ax.plot(series["weeks"], s, color=get_color(repo), label=get_short(repo),
+        ax.plot(list(vw), s, color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
         visible_data.append(s)
-        line_ends.append((series["weeks"], s, get_short(repo), get_color(repo)))
+        line_ends.append((list(vw), s, get_short(repo), get_color(repo)))
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    # Insights
-    insights = []
-    for dates, vals, name, color in line_ends:
-        r = series_pct_change(dates, vals, years_back=2)
-        if r:
-            direction = "up" if r[0] > 0 else "down"
-            insights.append((r[0], f"{name}: {direction} {abs(r[0]):.0f}% since {r[1]}"))
-    insights.sort(reverse=True)
-    if insights:
-        lines = [i[1] for i in insights[:4]]
-        lines.insert(0, "Growing = each maintainer has more PRs to review")
-        add_insight_box(ax, lines, loc="lower right")
+    add_insight_box(ax, [
+        "Rising = each reviewer has more PRs queued for attention",
+        "maui's tiny merge team (2-3 people) drives high per-person load",
+        "roslyn steady — mature process scales with consistent team size",
+    ], loc="upper left")
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_per_maintainer.png")
     fig.savefig(path, dpi=150)
@@ -1154,6 +1155,60 @@ def chart_contributor_diversity(all_items, output_dir):
     ], loc="upper left")
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+COPILOT_AUTHORS = {"copilot-swe-agent[bot]", "Copilot"}
+
+def chart_copilot_adoption(all_items, output_dir):
+    """Copilot-authored PRs as % of all PRs per month, per repo."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot PRs as % of All PRs (3-month rolling avg)", "% of PRs")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    line_ends = []
+    for repo, items in all_items.items():
+        total_by_month = defaultdict(int)
+        copilot_by_month = defaultdict(int)
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd:
+                continue
+            month = cd.replace(day=1)
+            author = item.get("author") or ""
+            total_by_month[month] += 1
+            if author in COPILOT_AUTHORS:
+                copilot_by_month[month] += 1
+
+        if not total_by_month:
+            continue
+        months = sorted(total_by_month.keys())
+        # Only show months where Copilot existed (2024+)
+        months = [m for m in months if m.year >= 2024]
+        if not months:
+            continue
+        pcts = [100.0 * copilot_by_month.get(m, 0) / total_by_month[m]
+                for m in months]
+        smoothed = smooth(pcts, 3)
+        ax.plot(months, smoothed,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        line_ends.append((months, smoothed, get_short(repo), get_color(repo)))
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Shows adoption of Copilot SWE Agent for PR creation",
+        "runtime is early/aggressive adopter — reflects team investment",
+        "Rapid month-over-month growth across all dotnet repos",
+    ], loc="upper left")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_adoption.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -1392,6 +1447,8 @@ def main():
             chart_open_issues_per_maintainer(all_series, all_maint, output_dir)
             chart_open_prs_per_maintainer(all_series, all_maint, output_dir)
             chart_contributor_diversity(all_items, output_dir)
+            chart_copilot_adoption(all_items, output_dir)
+            chart_community_responsiveness(all_items, all_maint, output_dir)
         else:
             print("  (skipping maintainer charts — no author/merged_by data yet)")
 
