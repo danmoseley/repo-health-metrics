@@ -591,11 +591,9 @@ def chart_net_flow_comparison(all_series, output_dir):
         visible_data.append(smoothed)
         line_ends.append((series["weeks"], smoothed, get_short(repo), get_color(repo)))
 
-    # Clamp Y-axis using p95 to exclude one-time mass-closure spikes
-    # Use p90 to clip vscode's high-volume bulk closure spikes
-    ymin, ymax = robust_ylim(visible_data, padding=1.3, symmetric=True, percentile=0.90)
-    ax.set_ylim(ymin, ymax)
-    ax.annotate("Y-axis clamped to exclude bulk closure spikes",
+    # Fixed symmetric range — shows the interesting variation without extreme spikes
+    ax.set_ylim(-100, 100)
+    ax.annotate("Y-axis clamped to [-100, +100] to exclude bulk closure spikes",
                 xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
                 color="#888888", style="italic")
     ax.legend(loc="upper left", fontsize=10)
@@ -625,8 +623,8 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
         visible_data.append(smoothed)
         line_ends.append((series["weeks"], smoothed, get_short(repo), get_color(repo)))
 
-    ymin, ymax = robust_ylim(visible_data)
-    ax.set_ylim(ymin, ymax)
+    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
+    ax.set_ylim(ymin, max(ymax, 300))
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     fig.tight_layout()
