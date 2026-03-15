@@ -59,6 +59,12 @@ REPO_SHORT = {
 # Go uses Gerrit for code review, not GitHub PRs — exclude from PR charts
 GERRIT_REPOS = {"golang/go"}
 
+# Repos with early migration artifacts — trim chart data before this date
+# Go migrated from Google Code in Q4 2014; mass-closed 8K issues on import
+REPO_START_DATE = {
+    "golang/go": "2015-01-01",
+}
+
 # Repos where a bot merges all PRs — merged_by is useless for maintainer analysis
 BOT_MERGER_REPOS = {"rust-lang/rust"}
 
@@ -126,6 +132,12 @@ def load_items(conn, repo):
 
     # Sort combined items by created_at
     items.sort(key=lambda x: x["created_at"] or "")
+
+    # Trim items before repo start date (migration artifacts)
+    start = REPO_START_DATE.get(repo)
+    if start:
+        items = [i for i in items if (i["created_at"] or "") >= start]
+
     return items
 
 
