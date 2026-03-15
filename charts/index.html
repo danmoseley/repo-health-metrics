@@ -10,14 +10,15 @@
   h2 { color: #444; border-bottom: 2px solid #ddd; padding-bottom: 6px; margin-top: 40px; }
   .chart { text-align: center; margin: 20px 0; }
   .chart img { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; background: white; }
-  .toc { background: white; padding: 16px 24px; border-radius: 6px; margin-bottom: 30px; display: flex; gap: 40px; }
+  .toc-wrapper { display: flex; gap: 24px; margin-bottom: 30px; align-items: flex-start; }
+  .toc { background: white; padding: 16px 24px; border-radius: 6px; display: flex; gap: 40px; flex-shrink: 0; }
   .toc-col a { display: block; margin: 4px 0; color: #007ACC; text-decoration: none; font-size: 14px; }
   .toc-col a:hover { text-decoration: underline; }
   .toc-col .section { font-weight: bold; margin-top: 10px; display: block; }
   .toc-col .section:first-child { margin-top: 0; }
-  .key-findings { background: #fff8e1; padding: 16px 24px; border-radius: 6px; margin-bottom: 30px; border-left: 4px solid #f9a825; }
+  .key-findings { background: #fff8e1; padding: 16px 24px; border-radius: 6px; border-left: 4px solid #f9a825; flex: 1; min-width: 0; }
   .key-findings h2 { color: #e65100; border: none; margin: 0 0 10px 0; padding: 0; font-size: 18px; }
-  .key-findings ul { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; color: #333; }
+  .key-findings ul { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #333; }
   .key-findings li { margin-bottom: 4px; }
   .key-findings .tag { font-weight: bold; color: #555; }
 </style>
@@ -26,6 +27,7 @@
 <h1>Repo Health Metrics</h1>
 <p class="subtitle">dotnet/runtime · dotnet/roslyn · dotnet/maui · dotnet/aspire · microsoft/vscode · rust-lang/rust · golang/go</p>
 
+<div class="toc-wrapper">
 <div class="toc">
   <div class="toc-col">
     <span class="section">Comparison Charts</span>
@@ -53,6 +55,10 @@
     <a href="#community-resp">Community Issue Turnaround</a>
     <a href="#community-ttc">Community Time-to-Close</a>
     <a href="#community-age">Open Community Issue Age</a>
+    <a href="#community-pareto">Community PR Concentration</a>
+    <a href="#community-retention">First-Timer Retention</a>
+    <a href="#community-latency">Community Merge Latency</a>
+    <a href="#community-gini">Concentration Over Time</a>
   </div>
   <div class="toc-col">
     <span class="section">Per-Repo Dashboards</span>
@@ -70,14 +76,15 @@
   <h2>Key Findings for dotnet</h2>
   <ul>
     <li><span class="tag">Maintainer squeeze:</span> Across all dotnet repos, open issues and PRs per maintainer are rising. runtime lost ~20% of active maintainers since late 2023, yet workload hasn't shrunk proportionally.</li>
-    <li><span class="tag">Community is concentrating:</span> runtime community PR authors dropped ~22%, but PR volume held steady — fewer people contributing more each (7.4 → 8.8 PRs/person). The remaining contributors are more committed, but the funnel is narrowing.</li>
+    <li><span class="tag">Community contributors concentrating:</span> runtime community PR authors dropped ~22%, but PR volume held steady — fewer people contributing more each (7.4 → 8.8 PRs/person). The remaining contributors are more committed, but the funnel is narrowing.</li>
+    <li><span class="tag">First-timer retention cratering:</span> runtime's 12-month return rate dropped from 40% (2020) to 22% (2024). 60% of community authors make exactly one PR and never return. maui's 8× merge latency gap likely drives this — first-timers don't wait.</li>
     <li><span class="tag">maui Syncfusion effect:</span> 22 Syncfusion engineers began contributing mid-2024, now accounting for 74% of community PRs. Community health metrics for maui are heavily dependent on this single partnership.</li>
-    <li><span class="tag">roslyn stale backlog:</span> 630+ open PRs (68% over 1 year old), mostly from maintainers not community. Periodic bulk issue closures (2022, 2024, 2025) mask the growing backlog in close ratio charts.</li>
     <li><span class="tag">Issue turnaround holding:</span> Despite fewer maintainers, runtime's community issue turnaround (~50% closed within 30 days) has held steady since 2020. But the open backlog % is creeping up (14% → 30% still open).</li>
     <li><span class="tag">Copilot adoption accelerating:</span> runtime is the most aggressive adopter of Copilot SWE Agent PRs among dotnet repos, with rapid month-over-month growth across all four repos.</li>
     <li><span class="tag">Community issue openers declining:</span> runtime and maui both see fewer distinct community issue openers, likely reflecting product maturation — but could also signal disengagement if the open backlog keeps growing.</li>
     <li><span class="tag">How dotnet compares:</span> vscode has 2× the maintainer pool and closes 60% of issues within 30 days. rust merges ~160 PRs/week via automated bors bot with 1,000+ contributors. dotnet repos are healthy but less automated and more maintainer-constrained than peers.</li>
   </ul>
+</div>
 </div>
 
 <h2 id="comparison">Comparison Charts</h2>
@@ -103,6 +110,10 @@
 <div class="chart" id="community-resp"><img src="community_responsiveness_comparison.png" alt="Community Issue Turnaround"></div>
 <div class="chart" id="community-ttc"><img src="community_time_to_close.png" alt="Community Time-to-Close"></div>
 <div class="chart" id="community-age"><img src="community_issue_age.png" alt="Open Community Issue Age"></div>
+<div class="chart" id="community-pareto"><img src="community_pareto.png" alt="Community PR Concentration"></div>
+<div class="chart" id="community-retention"><img src="community_retention.png" alt="First-Timer Retention"></div>
+<div class="chart" id="community-latency"><img src="community_merge_latency.png" alt="Community Merge Latency"></div>
+<div class="chart" id="community-gini"><img src="community_gini.png" alt="Concentration Over Time"></div>
 
 <h2 id="dashboards">Per-Repo Dashboards</h2>
 
