@@ -749,9 +749,13 @@ def chart_sustainability_score(all_series, output_dir):
     ax.set_ylim(40, 180)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    ax.annotate("Above 100% = shrinking backlog | Below 100% = growing backlog",
-                xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
-                color="#888888", style="italic")
+    # Place labels just above/below the 100% reference line in data coords
+    xlim = ax.get_xlim()
+    x_pos = mdates.num2date(xlim[0] + (xlim[1] - xlim[0]) * 0.02)
+    ax.text(x_pos, 103, "▲ shrinking backlog", fontsize=9,
+            color="#888888", style="italic", va="bottom")
+    ax.text(x_pos, 97, "▼ growing backlog", fontsize=9,
+            color="#888888", style="italic", va="top")
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
     fig.savefig(path, dpi=150)
