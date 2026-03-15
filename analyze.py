@@ -59,6 +59,13 @@ REPO_SHORT = {
 # Go uses Gerrit for code review, not GitHub PRs — exclude from PR charts
 GERRIT_REPOS = {"golang/go"}
 
+# Repos where a bot merges all PRs — merged_by is useless for maintainer analysis
+BOT_MERGER_REPOS = {"rust-lang/rust"}
+
+# Known bot accounts to exclude from maintainer counts
+BOT_ACCOUNTS = {"bors", "rust-bors", "dotnet-bot", "dependabot[bot]", "github-actions[bot]",
+                "renovate[bot]", "copilot-swe-agent[bot]"}
+
 
 def get_color(repo):
     return REPO_COLORS.get(repo, "#888888")
@@ -71,7 +78,8 @@ def get_short(repo):
 def load_items(conn, repo):
     """Load all items for a repo, sorted by created_at."""
     rows = conn.execute(
-        "SELECT number, created_at, closed_at, state, is_pull_request, merged_at "
+        "SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+        "author, merged_by "
         "FROM items WHERE repo = ? ORDER BY created_at",
         (repo,)
     ).fetchall()
@@ -84,6 +92,8 @@ def load_items(conn, repo):
             "state": r[3],
             "is_pr": bool(r[4]),
             "merged_at": r[5],
+            "author": r[6],
+            "merged_by": r[7],
         })
     return items
 
@@ -231,6 +241,56 @@ def compute_monthly_time_to_merge(items):
     months = sorted(merge_times_by_month.keys())
     medians = [median(merge_times_by_month[m]) for m in months]
     return months, medians
+
+
+def compute_monthly_maintainer_stats(items):
+    """
+    Compute monthly maintainer stats with a 2-month rolling window.
+
+    Returns (months, active_maintainers, prs_per_maintainer, pr_count) lists.
+    "Active maintainer" = distinct person who merged >=1 PR in the month or prior month.
+    """
+    # Collect mergers per month
+    mergers_by_month = defaultdict(set)
+    merges_by_month = defaultdict(int)
+
+    for item in items:
+        if not item["is_pr"]:
+            continue
+        md = parse_date(item["merged_at"])
+        merger = item.get("merged_by")
+        if not md or not merger:
+            continue
+        if merger in BOT_ACCOUNTS:
+            continue
+        month_key = md.replace(day=1)
+        mergers_by_month[month_key].add(merger)
+        merges_by_month[month_key] += 1
+
+    if not mergers_by_month:
+        return [], [], [], []
+
+    months = sorted(mergers_by_month.keys())
+    active_maintainers = []
+    prs_per_maintainer = []
+    pr_counts = []
+
+    for i, m in enumerate(months):
+        # 2-month rolling window: this month + prior month
+        window_mergers = set(mergers_by_month[m])
+        if i > 0:
+            prev = months[i - 1]
+            # Only include prior month if it's actually adjacent
+            if (m - prev).days <= 62:
+                window_mergers |= mergers_by_month[prev]
+
+        n_maintainers = len(window_mergers)
+        n_prs = merges_by_month[m]
+        active_maintainers.append(n_maintainers)
+        prs_per_maintainer.append(n_prs / n_maintainers if n_maintainers > 0 else 0)
+        pr_counts.append(n_prs)
+
+    return months, active_maintainers, prs_per_maintainer, pr_counts
 
 
 def smooth(data, window=4):
@@ -462,13 +522,12 @@ def chart_sustainability_score(all_series, output_dir):
 def chart_time_to_merge(all_ttm, output_dir):
     """Median time-to-merge (days) per month, all repos. Excludes Gerrit repos."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Median Time to Merge PRs (Monthly)", "Days")
+    setup_axes(ax, "Median Time to Merge PRs (Monthly, 3-month avg)", "Days")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
     for repo, (months, medians) in all_ttm.items():
         if not months or repo in GERRIT_REPOS:
             continue
-        # Smooth to reduce noise
         smoothed = smooth(medians, window=3)
         ax.plot(months, smoothed,
                 color=get_color(repo), label=get_short(repo),
@@ -481,6 +540,146 @@ def chart_time_to_merge(all_ttm, output_dir):
                 color="#888888", style="italic")
     fig.tight_layout()
     path = os.path.join(output_dir, "time_to_merge_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_active_maintainers(all_maint, output_dir):
+    """Active maintainers per month (2-month rolling window). Excludes Gerrit and bot-merger repos."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Active Maintainers (Distinct Mergers, 2-Month Rolling Window)",
+               "People")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    excluded = GERRIT_REPOS | BOT_MERGER_REPOS
+    for repo, (months, maintainers, _, _) in all_maint.items():
+        if not months or repo in excluded:
+            continue
+        ax.plot(months, smooth(maintainers, 3),
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper left", fontsize=10)
+    notes = "Maintainer = anyone who merged a PR in the month or prior month (bots excluded)"
+    excl_names = ", ".join(sorted(get_short(r) for r in excluded))
+    notes += f"\nExcluded: {excl_names} (Gerrit/bot-merger workflows)"
+    ax.annotate(notes, xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
+                color="#888888", style="italic")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "active_maintainers_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_prs_per_maintainer(all_maint, output_dir):
+    """PRs merged per active maintainer per month. Excludes Gerrit and bot-merger repos."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PRs Merged per Active Maintainer (Monthly, 3-month avg)",
+               "PRs / Maintainer / Month")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    excluded = GERRIT_REPOS | BOT_MERGER_REPOS
+    for repo, (months, _, prs_per, _) in all_maint.items():
+        if not months or repo in excluded:
+            continue
+        ax.plot(months, smooth(prs_per, 3),
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper left", fontsize=10)
+    notes = "Higher = more throughput per person (or fewer maintainers doing more work)"
+    excl_names = ", ".join(sorted(get_short(r) for r in excluded))
+    notes += f"\nExcluded: {excl_names} (Gerrit/bot-merger workflows)"
+    ax.annotate(notes, xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
+                color="#888888", style="italic")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "prs_per_maintainer_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_contributor_diversity(all_items, output_dir):
+    """Distinct PR authors per month — measures community contribution breadth."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Distinct PR Authors per Month (3-month avg)",
+               "Unique Authors")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+
+    for repo, items in all_items.items():
+        if repo in GERRIT_REPOS:
+            continue
+        authors_by_month = defaultdict(set)
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            author = item.get("author")
+            if not cd or not author:
+                continue
+            authors_by_month[cd.replace(day=1)].add(author)
+
+        if not authors_by_month:
+            continue
+        months = sorted(authors_by_month.keys())
+        counts = [len(authors_by_month[m]) for m in months]
+        ax.plot(months, smooth(counts, 3),
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper left", fontsize=10)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "contributor_diversity_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_issue_close_rate(all_series, output_dir):
+    """Percentage of issues closed within 30 days of opening, by month."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Issue Responsiveness (% Closed Within 30 Days, 3-month avg)",
+               "% Closed <30d")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    for repo, items in all_series.items():
+        monthly_total = defaultdict(int)
+        monthly_fast = defaultdict(int)
+        for item in items:
+            if item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            cld = parse_date(item["closed_at"])
+            if not cd:
+                continue
+            month = cd.replace(day=1)
+            monthly_total[month] += 1
+            if cld and (cld - cd).days <= 30:
+                monthly_fast[month] += 1
+
+        if not monthly_total:
+            continue
+        months = sorted(monthly_total.keys())
+        pcts = [100.0 * monthly_fast.get(m, 0) / monthly_total[m]
+                if monthly_total[m] > 10 else None for m in months]
+        # Filter out None months (too few issues)
+        valid = [(m, p) for m, p in zip(months, pcts) if p is not None]
+        if not valid:
+            continue
+        vm, vp = zip(*valid)
+        ax.plot(list(vm), smooth(list(vp), 3),
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+
+    ax.set_ylim(0, 100)
+    ax.legend(loc="upper right", fontsize=10)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "issue_responsiveness_comparison.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -528,10 +727,25 @@ def main():
     # Compute series
     print("Computing weekly time series...")
     all_series = {}
+    all_items = {}
     for repo in repos:
         print(f"  {repo}...")
         items = load_items(conn, repo)
+        all_items[repo] = items
         all_series[repo] = compute_weekly_series(items)
+
+    print("Computing time-to-merge...")
+    all_ttm = {}
+    for repo in repos:
+        all_ttm[repo] = compute_monthly_time_to_merge(all_items[repo])
+
+    print("Computing maintainer stats...")
+    all_maint = {}
+    has_maintainer_data = False
+    for repo in repos:
+        all_maint[repo] = compute_monthly_maintainer_stats(all_items[repo])
+        if all_maint[repo][0]:  # has months
+            has_maintainer_data = True
     print()
 
     # Generate charts
@@ -547,6 +761,14 @@ def main():
         chart_net_flow_comparison(all_series, output_dir)
         chart_pr_merge_rate_comparison(all_series, output_dir)
         chart_sustainability_score(all_series, output_dir)
+        chart_time_to_merge(all_ttm, output_dir)
+        chart_issue_close_rate(all_items, output_dir)
+        if has_maintainer_data:
+            chart_active_maintainers(all_maint, output_dir)
+            chart_prs_per_maintainer(all_maint, output_dir)
+            chart_contributor_diversity(all_items, output_dir)
+        else:
+            print("  (skipping maintainer charts — no author/merged_by data yet)")
 
     # Per-repo dashboards
     for repo in repos:

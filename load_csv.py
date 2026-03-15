@@ -11,6 +11,11 @@ DB_PATH = "pr-dashboard.db"
 CSV_PATH = "data/items.csv.gz"
 
 
+def nullify(row):
+    """Convert empty strings to None (SQL NULL)."""
+    return [None if v == "" else v for v in row]
+
+
 def main():
     csv_path = Path(CSV_PATH)
     if not csv_path.exists():
@@ -34,6 +39,8 @@ def main():
             is_pull_request INTEGER NOT NULL DEFAULT 0,
             merged_at TEXT,
             labels TEXT,
+            author TEXT,
+            merged_by TEXT,
             PRIMARY KEY (repo, number)
         );
         CREATE INDEX idx_items_repo_type ON items(repo, is_pull_request);
@@ -55,13 +62,21 @@ def main():
     count = 0
     with gzip.open(csv_path, "rt", newline="") as f:
         reader = csv.reader(f)
-        header = next(reader)  # skip header
+        header = next(reader)
+        ncols = len(header)
         batch = []
         for row in reader:
-            batch.append(row)
+            row = nullify(row)
+            # Pad with None if CSV has fewer columns than table (e.g., no author/merged_by)
+            while len(row) < 10:
+                row.append(None)
+            batch.append(row[:10])
             if len(batch) >= 10000:
                 conn.executemany(
-                    "INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?)", batch
+                    "INSERT OR REPLACE INTO items "
+                    "(repo, number, created_at, closed_at, state, is_pull_request, "
+                    "merged_at, labels, author, merged_by) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)", batch
                 )
                 count += len(batch)
                 batch = []
@@ -69,13 +84,17 @@ def main():
                     print(f"  {count:,} rows...")
         if batch:
             conn.executemany(
-                "INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?)", batch
+                "INSERT OR REPLACE INTO items "
+                "(repo, number, created_at, closed_at, state, is_pull_request, "
+                "merged_at, labels, author, merged_by) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)", batch
             )
             count += len(batch)
 
     conn.commit()
 
     # Mark all repos as complete in fetch_progress
+    # But only mark a type as complete if we actually have items of that type
     repos = conn.execute("SELECT DISTINCT repo FROM items").fetchall()
     for (repo,) in repos:
         for item_type in ("issue", "pr"):
@@ -84,12 +103,13 @@ def main():
                 "SELECT COUNT(*) FROM items WHERE repo=? AND is_pull_request=?",
                 (repo, is_pr),
             ).fetchone()[0]
-            conn.execute(
-                "INSERT OR REPLACE INTO fetch_progress "
-                "(repo, item_type, last_page, items_fetched, status) "
-                "VALUES (?, ?, 0, ?, 'complete')",
-                (repo, item_type, n),
-            )
+            if n > 0:
+                conn.execute(
+                    "INSERT OR REPLACE INTO fetch_progress "
+                    "(repo, item_type, last_page, items_fetched, status) "
+                    "VALUES (?, ?, 0, ?, 'complete')",
+                    (repo, item_type, n),
+                )
     conn.commit()
     conn.close()
 

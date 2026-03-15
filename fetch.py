@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPOS = [
     "golang/go",          # smallest, good for pipeline validation
+    "dotnet/maui",
     "dotnet/roslyn",
     "dotnet/runtime",
     "rust-lang/rust",
@@ -86,6 +87,8 @@ def init_db(db_path):
             is_pull_request INTEGER NOT NULL DEFAULT 0,
             merged_at TEXT,
             labels TEXT,
+            author TEXT,
+            merged_by TEXT,
             PRIMARY KEY (repo, number)
         );
 
@@ -103,6 +106,12 @@ def init_db(db_path):
         CREATE INDEX IF NOT EXISTS idx_items_repo_type ON items(repo, is_pull_request);
         CREATE INDEX IF NOT EXISTS idx_items_created ON items(repo, created_at);
     """)
+    # Migration: add columns if they don't exist (for DBs created before this change)
+    for col in ("author", "merged_by"):
+        try:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
     return conn
 
@@ -269,6 +278,17 @@ def fetch_items(conn, session, repo, item_type, request_delay):
             is_pr = 1 if item_type == "pr" else 0
             labels = json.dumps([lb["name"] for lb in item.get("labels", [])])
 
+            # Extract author and merged_by (nested objects)
+            author = None
+            user = item.get("user")
+            if user and isinstance(user, dict):
+                author = user.get("login")
+
+            merged_by_login = None
+            mb = item.get("merged_by")
+            if mb and isinstance(mb, dict):
+                merged_by_login = mb.get("login")
+
             batch.append((
                 repo,
                 item["number"],
@@ -278,13 +298,16 @@ def fetch_items(conn, session, repo, item_type, request_delay):
                 is_pr,
                 item.get("merged_at"),  # only present from /pulls
                 labels,
+                author,
+                merged_by_login,
             ))
 
         if batch:
             conn.executemany(
                 "INSERT OR REPLACE INTO items "
-                "(repo, number, created_at, closed_at, state, is_pull_request, merged_at, labels) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(repo, number, created_at, closed_at, state, is_pull_request, "
+                "merged_at, labels, author, merged_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 batch
             )
             items_fetched += len(batch)
