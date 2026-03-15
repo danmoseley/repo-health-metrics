@@ -1,0 +1,12 @@
+# Data
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
