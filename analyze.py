@@ -505,10 +505,14 @@ def label_line_ends(ax, lines_info):
 def setup_axes(ax, title, ylabel):
     ax.set_title(title, fontsize=13, fontweight="bold", pad=10)
     ax.set_ylabel(ylabel, fontsize=10)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    # Major ticks on Jan 1 (grid lines), minor ticks at mid-year (labels)
     ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(""))  # no label on Jan 1 ticks
+    ax.xaxis.set_minor_locator(mdates.YearLocator(month=7))  # mid-year
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%Y"))
+    ax.tick_params(axis="x", which="minor", length=0)  # no tick mark for labels
     ax.yaxis.set_major_formatter(FuncFormatter(thousands_formatter))
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, which="major")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -735,8 +739,9 @@ def chart_per_repo_dashboard(repo, series, output_dir):
     # Panel 2: Open PRs
     ax = axes[0, 1]
     setup_axes(ax, "Open PRs", "Count")
-    ax.plot(weeks, series["open_prs"], color=color, linewidth=1.5)
-    ax.fill_between(weeks, series["open_prs"], alpha=0.15, color=color)
+    open_prs_smooth = smooth(series["open_prs"], window=26)
+    ax.plot(weeks, open_prs_smooth, color=color, linewidth=1.5)
+    ax.fill_between(weeks, open_prs_smooth, alpha=0.15, color=color)
     if repo in GERRIT_REPOS:
         ax.annotate("PR merge inferred from close date (Gerrit workflow)",
                     xy=(0.02, 0.02), xycoords="axes fraction", fontsize=7,
@@ -744,9 +749,9 @@ def chart_per_repo_dashboard(repo, series, output_dir):
 
     # Panel 3: Issue inflow vs outflow (smoothed, clamped) + yearly net bars
     ax = axes[1, 0]
-    setup_axes(ax, "Issues: Opened vs Closed (8-week avg)", "Per Week")
-    opened_smooth = smooth(series["issue_opened"], window=8)
-    closed_smooth = smooth(series["issue_closed"], window=8)
+    setup_axes(ax, "Issues: Opened vs Closed (26-week avg)", "Per Week")
+    opened_smooth = smooth(series["issue_opened"], window=26)
+    closed_smooth = smooth(series["issue_closed"], window=26)
     ax.plot(weeks, opened_smooth, color="#E74C3C",
             label="Opened", linewidth=1.2, alpha=0.8)
     ax.plot(weeks, closed_smooth, color="#27AE60",
@@ -762,9 +767,9 @@ def chart_per_repo_dashboard(repo, series, output_dir):
 
     # Panel 4: PRs opened vs merged (smoothed, clamped) + yearly net bars
     ax = axes[1, 1]
-    setup_axes(ax, "PRs: Opened vs Merged (8-week avg)", "Per Week")
-    pr_open_smooth = smooth(series["pr_opened"], window=8)
-    pr_merge_smooth = smooth(series["pr_merged"], window=8)
+    setup_axes(ax, "PRs: Opened vs Merged (26-week avg)", "Per Week")
+    pr_open_smooth = smooth(series["pr_opened"], window=26)
+    pr_merge_smooth = smooth(series["pr_merged"], window=26)
     ax.plot(weeks, pr_open_smooth, color="#E74C3C",
             label="Opened", linewidth=1.2, alpha=0.8)
     ax.plot(weeks, pr_merge_smooth, color="#27AE60",
