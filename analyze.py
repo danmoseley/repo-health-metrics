@@ -42,6 +42,7 @@ REPO_COLORS = {
     "dotnet/runtime": "#512BD4",   # .NET purple
     "dotnet/roslyn": "#E91E63",    # pink/magenta
     "dotnet/maui": "#FF8F00",      # amber/orange
+    "dotnet/aspire": "#4CAF50",    # green
     "microsoft/vscode": "#007ACC", # VS Code blue
     "rust-lang/rust": "#B7410E",   # rust red-brown
     "golang/go": "#00897B",        # teal
@@ -51,6 +52,7 @@ REPO_SHORT = {
     "dotnet/runtime": "runtime",
     "dotnet/roslyn": "roslyn",
     "dotnet/maui": "maui",
+    "dotnet/aspire": "aspire",
     "microsoft/vscode": "vscode",
     "rust-lang/rust": "rust",
     "golang/go": "go",
@@ -670,7 +672,7 @@ def chart_open_prs_comparison(all_series, output_dir):
 def chart_net_flow_comparison(all_series, output_dir):
     """Net issue flow (opened - closed per week), smoothed, Y-axis clamped."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Net Issue Flow (Opened − Closed per Week, 26-week avg)",
+    setup_axes(ax, "Net Issue Flow (Opened − Closed per Week, 12-month avg)",
                "Net Issues / Week")
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
@@ -680,9 +682,10 @@ def chart_net_flow_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series:
             continue
-        so = smooth(series["issue_opened"], window=26)
-        sc = smooth(series["issue_closed"], window=26)
-        smoothed = [o - c for o, c in zip(so, sc)]
+        # Smooth the raw net flow directly with a wide window.
+        # Smoothing opened/closed separately then subtracting stays noisy
+        # because correlated weekly spikes don't cancel in the difference.
+        smoothed = smooth(series["net_issue_flow"], window=52)
         alpha = 0.4 if repo == "microsoft/vscode" else 0.85
         lw = 1.2 if repo == "microsoft/vscode" else 1.5
         ax.plot(series["weeks"], smoothed,
@@ -706,7 +709,7 @@ def chart_net_flow_comparison(all_series, output_dir):
             continue
         so = smooth(series["issue_opened"], window=26)
         sc = smooth(series["issue_closed"], window=26)
-        s = [o - c for o, c in zip(so, sc)]
+        s = smooth(series["net_issue_flow"], window=52)
         avg = series_latest_avg(s, window=13)
         if avg is not None:
             (above if avg > 0 else below).append((avg, get_short(repo)))
@@ -747,6 +750,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
         "dotnet repos dip each Nov — freeze before annual .NET release",
+        "runtime merge rate declining since late 2024 — likely driven\n  by ~10% drop in active maintainers over same period",
         "vscode 3x jump mid-2022 was workflow shift to smaller PRs,\n  not a staffing increase (same ~175 authors)",
         "rust's steady ~250/wk despite volunteer governance is remarkable",
     ])

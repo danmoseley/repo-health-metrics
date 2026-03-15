@@ -16,6 +16,7 @@ import requests
 
 DB_PATH = "pr-dashboard.db"
 REPOS = [
+    "dotnet/aspire",
     "dotnet/maui",
     "dotnet/roslyn",
     "dotnet/runtime",

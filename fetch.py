@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPOS = [
     "golang/go",          # smallest, good for pipeline validation
+    "dotnet/aspire",
     "dotnet/maui",
     "dotnet/roslyn",
     "dotnet/runtime",
@@ -77,6 +78,7 @@ def init_db(db_path):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS items (
             repo TEXT NOT NULL,
