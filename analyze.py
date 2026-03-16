@@ -779,9 +779,9 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "dotnet repos dip each Nov — freeze before annual .NET release",
-        "runtime merge rate declining since late 2024 — likely driven\n  by ~10% drop in active maintainers over same period?",
+        "runtime merge rate declining since late 2024 — coincides\n  with ~28% drop in active maintainers since 2023 peak?",
         "vscode 3x jump mid-2022 was workflow shift to smaller PRs,\n  not a staffing increase (same ~175 authors)",
-        "rust's steady ~250/wk — high volume driven by 1,000+ active contributors;\n  bors automates the merge step but review/iteration is still human",
+        "rust's steady ~160/wk — high volume driven by 1,000+ active contributors;\n  bors automates the merge step but review/iteration is still human",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
@@ -827,7 +827,7 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         if delta > 0:
             _dashboard_insight(ax, f"Backlog growing — typical pattern across all repos ({delta:+,}/yr)")
         else:
-            _dashboard_insight(ax, f"Backlog shrinking — unusual and positive ({delta:+,}/yr)")
+            _dashboard_insight(ax, f"Backlog shrinking ({delta:+,}/yr)")
 
     # Panel 2: Open PRs
     ax = axes[0, 1]
@@ -871,7 +871,7 @@ def chart_per_repo_dashboard(repo, series, output_dir):
         if recent_opened > 0:
             ratio = recent_closed / recent_opened
             if ratio > 1.05:
-                _dashboard_insight(ax, f"Closing faster than opening — actively reducing debt ({ratio:.0%})")
+                _dashboard_insight(ax, f"Closing faster than opening ({ratio:.0%})")
             elif ratio > 0.95:
                 _dashboard_insight(ax, f"Roughly keeping pace — typical for mature repos ({ratio:.0%})")
             else:
@@ -1004,8 +1004,8 @@ def chart_time_to_merge(all_ttm, output_dir):
     add_direction_arrow(ax, "down")
     # Insights: current p75 TTM for each repo
     add_insight_box(ax, [
-        "runtime and roslyn: fast merges (<5d p75)",
-        "maui p75 rose sharply mid-2024 when Syncfusion ramped up (22 engineers, 74% of community PRs)",
+        "runtime p75 ~6d, roslyn p75 ~3d — among the fastest",
+        "maui p75 rose sharply mid-2024 when Syncfusion partnership ramped up",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "time_to_merge_comparison.png")
@@ -1277,7 +1277,7 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
     add_insight_box(ax, [
         "Same upward trend as issues per maintainer — maintainer\n  workload is increasing across all repos",
         "maui's small merge team (2-3 people) drives high per-person load",
-        "roslyn rising sharply — 630+ open PRs (68% over 1yr old),\n  stale community PRs accumulating without being closed",
+        "roslyn rising sharply — 630+ open PRs (68% over 1yr old),\n  mostly maintainer-authored PRs going stale",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_per_maintainer.png")
@@ -1333,8 +1333,8 @@ def chart_contributor_diversity(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "runtime community authors declining ~22% but PR volume held steady\n  — fewer people contributing more each (7.4 to 8.8 PRs/person)",
-        "maui jumped mid-2024 — ~22 Syncfusion engineers began dedicated\n  contributions (74% of community PRs since Aug 2024)",
+        "runtime community authors declining ~19% but PR volume held steady\n  — remaining contributors are shouldering more work",
+        "maui jumped mid-2024 — Syncfusion engineers began dedicated\n  contributions, now a large share of community PRs",
         "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)?",
         "rust has broadest contributor base of all repos tracked",
     ])
@@ -1598,9 +1598,9 @@ def chart_community_pr_share(all_items, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "vscode ~92% community PRs — almost entirely external contributors",
-        "runtime ~70% community — healthy mix of team + external",
-        "maui community share surged mid-2024 with Syncfusion partnership\n  — 22 dedicated engineers now contributing regularly",
+        "vscode ~10% community PRs — mostly built by maintainer team",
+        "runtime ~19% community — dominated by maintainers who also merge",
+        "maui community share surged mid-2024 with Syncfusion partnership",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pr_share.png")
@@ -1727,7 +1727,7 @@ def chart_issue_close_rate(all_series, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "vscode closes ~60% within 30 days — aggressive bot-assisted triage",
+        "vscode closes ~60% within 30 days — bot-assisted triage",
         "go historically most responsive — small focused team",
         "runtime starts at 2020 (pre-merge data unreliable) — has held\n  steady at ~40-50%, respectable for its issue volume",
     ])
@@ -1805,7 +1805,7 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "Most repos hold steady over time — community turnaround is consistent",
-        "runtime holding steady despite fewer maintainers — sustainable so far",
+        "runtime holding steady despite fewer maintainers",
         "aspire and maui recently declining — team bandwidth pressure?",
         "Lower than overall turnaround — team issues always get faster triage",
     ])
@@ -1887,7 +1887,7 @@ def chart_community_time_to_close(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "roslyn dwarfs others — confirmed by label data: feature requests\n  take 248d median vs 70d for bugs (p75 is 3 years vs 1.9 years)",
+        "roslyn dwarfs others — feature requests take ~456d median\n  vs ~57d for bugs, driven by long-lived enhancement requests",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
