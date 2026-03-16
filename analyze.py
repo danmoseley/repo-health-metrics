@@ -1333,7 +1333,7 @@ def chart_contributor_diversity(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "runtime community authors declining ~19% but PR volume held steady\n  — remaining contributors are shouldering more work",
+        "runtime active contributors declining from 2022 peak (~25% after smoothing)\n  — includes both community and maintainer authors",
         "maui jumped mid-2024 — Syncfusion engineers began dedicated\n  contributions, now a large share of community PRs",
         "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)?",
         "rust has broadest contributor base of all repos tracked",
@@ -1598,8 +1598,8 @@ def chart_community_pr_share(all_items, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "vscode ~10% community PRs — mostly built by maintainer team",
-        "runtime ~19% community — dominated by maintainers who also merge",
+        "vscode ~24% community PRs — mostly built by maintainer team",
+        "runtime ~35% community — rising trend in recent years",
         "maui community share surged mid-2024 with Syncfusion partnership",
     ])
     fig.tight_layout()
