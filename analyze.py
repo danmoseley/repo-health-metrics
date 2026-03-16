@@ -1406,7 +1406,7 @@ def chart_issue_community(all_items, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "runtime/maui declining — product maturation (fewer novel bugs)\n  and better self-service (docs, Stack Overflow, Discord)?",
-        "Could also signal community disengagement if issues feel ignored\n  — open backlog % is rising (runtime 14% to 30% since 2022)\n  though initial turnaround has held steady",
+        "Could also signal community disengagement if issues feel ignored?\n  — open backlog % rising (runtime 14% to 21% for 2022→2024 cohorts)\n  though initial turnaround has held steady",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "issue_community_comparison.png")
@@ -1466,7 +1466,7 @@ def chart_community_issue_volume(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
         "All dotnet repos show the same pattern: community issue volume peaked ~2022 and is declining",
-        "runtime volume declining since 2022 — but community share of new issues\n  is rising (55% to 62%) as team files fewer issues",
+        "runtime volume declining since 2022 — but community share of new issues\n  is rising (~58% to 62%) as team files fewer issues",
         "vscode volume tracks product adoption — dwarfs all other repos",
     ])
     fig.tight_layout()
@@ -1534,7 +1534,7 @@ def chart_community_issue_share(all_items, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "runtime share rising (53% to 62%) even as volume drops\n  — team filing fewer issues, community holding steady",
-        "maui near 90% — UI framework hits many device/platform edge cases;\n  community issues are 88% bug reports vs 11% feature requests",
+        "maui near 90% — UI framework hits many device/platform edge cases;\n  community issues are ~86% bug reports, only 2% feature requests",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_share.png")
@@ -1727,7 +1727,7 @@ def chart_issue_close_rate(all_series, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "vscode closes ~60% within 30 days — bot-assisted triage",
+        "vscode closes ~68% within 30 days — bot-assisted triage",
         "go historically most responsive — small focused team",
         "runtime starts at 2020 (pre-merge data unreliable) — has held\n  steady at ~40-50%, respectable for its issue volume",
     ])
