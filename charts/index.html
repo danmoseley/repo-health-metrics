@@ -41,23 +41,24 @@
     <a href="#responsiveness">Issue Turnaround</a>
   </div>
   <div class="toc-col">
-    <span class="section">Maintainer &amp; Community</span>
+    <span class="section">Maintainer</span>
     <a href="#maintainers">Active Maintainers</a>
     <a href="#prs-per-maint">PRs Merged per Maintainer</a>
     <a href="#issues-per-maint">Open Issues per Maintainer</a>
     <a href="#prs-open-per-maint">Open PRs per Maintainer</a>
-    <a href="#community">Active Community Contributors (PR Authors)</a>
-    <a href="#issue-community">Community Issue Openers (Distinct)</a>
-    <a href="#community-issue-vol">Issues Opened by Community</a>
-    <a href="#community-issue-share">Community Share of Issues</a>
-    <a href="#community-pr-share">Community Share of PRs</a>
     <a href="#copilot">Copilot PR Adoption</a>
-    <a href="#community-resp">Community Issue Turnaround</a>
-    <a href="#community-ttc">Community Time-to-Close</a>
-    <a href="#community-age">Open Community Issue Age</a>
-    <a href="#community-pareto">Community PR Concentration</a>
+    <span class="section">Community</span>
+    <a href="#community">Active Contributors (PR Authors)</a>
+    <a href="#issue-community">Issue Openers (Distinct)</a>
+    <a href="#community-issue-vol">Issues Opened</a>
+    <a href="#community-issue-share">Share of Issues</a>
+    <a href="#community-pr-share">Share of PRs</a>
+    <a href="#community-resp">Issue Turnaround</a>
+    <a href="#community-ttc">Time-to-Close</a>
+    <a href="#community-age">Open Issue Age</a>
+    <a href="#community-pareto">PR Concentration</a>
     <a href="#community-retention">First-Timer Retention</a>
-    <a href="#community-latency">Community Merge Latency</a>
+    <a href="#community-latency">Merge Latency</a>
     <a href="#community-gini">Concentration Over Time</a>
   </div>
   <div class="toc-col">
@@ -73,16 +74,23 @@
 </div>
 
 <div class="key-findings">
-  <h2>Key Findings for dotnet</h2>
+  <h2>Key Findings</h2>
   <ul>
     <li><span class="tag">Maintainer squeeze:</span> Across all dotnet repos, open issues and PRs per maintainer are rising. runtime lost ~20% of active maintainers since late 2023, yet workload hasn't shrunk proportionally.</li>
-    <li><span class="tag">Community contributors concentrating:</span> runtime community PR authors dropped ~22%, but PR volume held steady — fewer people contributing more each (7.4 → 8.8 PRs/person). The remaining contributors are more committed, but the funnel is narrowing.</li>
-    <li><span class="tag">First-timer retention cratering:</span> runtime's 12-month return rate dropped from 40% (2020) to 22% (2024). 60% of community authors make exactly one PR and never return. maui's 8× merge latency gap likely drives this — first-timers don't wait.</li>
-    <li><span class="tag">maui Syncfusion effect:</span> 22 Syncfusion engineers began contributing mid-2024, now accounting for 74% of community PRs. Community health metrics for maui are heavily dependent on this single partnership.</li>
-    <li><span class="tag">Issue turnaround holding:</span> Despite fewer maintainers, runtime's community issue turnaround (~50% closed within 30 days) has held steady since 2020. But the open backlog % is creeping up (14% → 30% still open).</li>
-    <li><span class="tag">Copilot adoption accelerating:</span> runtime is the most aggressive adopter of Copilot SWE Agent PRs among dotnet repos, with rapid month-over-month growth across all four repos.</li>
-    <li><span class="tag">Community issue openers declining:</span> runtime and maui both see fewer distinct community issue openers, likely reflecting product maturation — but could also signal disengagement if the open backlog keeps growing.</li>
-    <li><span class="tag">How dotnet compares:</span> vscode has 2× the maintainer pool and closes 60% of issues within 30 days. rust merges ~160 PRs/week via automated bors bot with 1,000+ contributors. dotnet repos are healthy but less automated and more maintainer-constrained than peers.</li>
+    <li><span class="tag">Community contributors concentrating:</span> runtime community PR authors dropped ~22%, but PR volume held steady — fewer people contributing more each (7.4 → 8.8 PRs/person). The funnel is narrowing.</li>
+    <li><span class="tag">First-timer retention halved:</span> runtime's 12-month return rate dropped from 38% (2020) to 22% (2024). 60% of community authors make exactly one PR and never return.</li>
+    <li><span class="tag">Community merge latency gap:</span> maui community PRs wait 8× longer than maintainer PRs. runtime and roslyn show a 2× gap. This potentially drives the retention drop.</li>
+    <li><span class="tag">maui Syncfusion dependency:</span> 22 Syncfusion engineers account for 74% of maui community PRs since mid-2024. Community health metrics are heavily dependent on this single partnership.</li>
+    <li><span class="tag">Issue turnaround holding:</span> Despite fewer maintainers, runtime's community issue turnaround (~50% closed within 30 days) has held steady since 2020. But the open backlog % is creeping up (14% → 30%).</li>
+    <li><span class="tag">Copilot adoption accelerating:</span> runtime is the most aggressive adopter of Copilot SWE Agent PRs, with rapid month-over-month growth across all four dotnet repos.</li>
+    <li><span class="tag">How dotnet compares:</span> vscode has 2× the maintainer pool. rust merges ~160 PRs/week via bors with 1,000+ contributors. dotnet repos are healthy but less automated and more maintainer-constrained than peers.</li>
+  </ul>
+  <h2 style="margin-top: 14px;">Potential Actions</h2>
+  <ul>
+    <li><span class="tag">Reduce community PR merge latency:</span> maui's 8× gap and runtime's 2× gap are the most likely lever for improving first-timer retention. Faster first review matters most.</li>
+    <li><span class="tag">Nurture the vital few:</span> Top 10% of community authors (~110 people in runtime) produce ~76% of community PRs. Identify and invest in these contributors — losing even a few has outsized impact.</li>
+    <li><span class="tag">Diversify maui community:</span> 74% dependence on one partner is a risk. Broaden the contributor base to reduce single-point-of-failure.</li>
+    <li><span class="tag">Explore automation:</span> rust's near-parity in merge latency and higher retention suggest automated reviewer assignment and merge tooling could help dotnet repos scale with fewer maintainers.</li>
   </ul>
 </div>
 </div>

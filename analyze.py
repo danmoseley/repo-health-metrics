@@ -69,6 +69,7 @@ GERRIT_REPOS = {"golang/go"}
 REPO_START_DATE = {
     "golang/go": "2015-01-01",
     "dotnet/runtime": "2015-01-01",
+    "dotnet/maui": "2021-03-01",
 }
 
 # Repos where a bot merges all PRs — merged_by is useless for maintainer analysis
@@ -650,8 +651,9 @@ def chart_open_issues_comparison(all_series, output_dir):
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
         "Issue backlogs grow monotonically across all repos — none have reversed this",
+        "maui's backlog has flattened since mid-2024 — inflow and closures now roughly balanced",
         "vscode triages ~3K issues every December (end-of-year housekeeping)\n  but the upward trend still dominates",
-        "go's flat backlog reflects disciplined triage — open/close rates\n  stay balanced, unlike most repos where backlogs grow unchecked",
+        "go's backlog is flattest — open/close rates stay balanced over time",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_comparison.png")
@@ -682,9 +684,9 @@ def chart_open_prs_comparison(all_series, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "PR backlogs rise over time in every repo — a universal pattern",
+        "PR backlogs rise over time in every repo — a universal pattern as old PRs go idle rather than close",
         "vscode's 3x jump in 2022 was a workflow change to smaller PRs,\n  not team growth — same ~175 authors making 3x more PRs",
-        "rust's high open PR count reflects rigorous review culture\n  — many PRs await RFC review or validation results for weeks",
+        "rust's high open PR count reflects its large contributor base (5,000+ community authors)\n  and rigorous multi-stage review process",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_comparison.png")
@@ -741,9 +743,10 @@ def chart_net_flow_comparison(all_series, output_dir):
         "All repos oscillate near zero — none losing ground long-term",
         "Dips below zero often precede releases (focused triage sprints)",
         "vscode shows regular December dips — annual housekeeping triage\n  closes thousands of stale issues each year-end",
-        "go stays flattest — disciplined triage keeps open/close rates balanced",
+        "go stays flattest — open/close rates stay closely balanced over time",
     ]
     add_insight_box(ax, lines)
+    add_direction_arrow(ax, "down")
     fig.tight_layout()
     path = os.path.join(output_dir, "net_issue_flow_comparison.png")
     fig.savefig(path, dpi=150)
@@ -839,7 +842,7 @@ def chart_per_repo_dashboard(repo, series, output_dir):
     elif len(series["open_prs"]) >= 52:
         delta = series["open_prs"][-1] - series["open_prs"][-52]
         if delta > 50:
-            _dashboard_insight(ax, f"Review queue growing — may need more reviewers ({delta:+,}/yr)")
+            _dashboard_insight(ax, f"Review queue growing ({delta:+,}/yr)")
         elif delta < -50:
             _dashboard_insight(ax, f"Review queue shrinking — team clearing backlog ({delta:+,}/yr)")
         else:
@@ -964,11 +967,11 @@ def chart_sustainability_score(all_series, output_dir):
     ax.text(x_pos, 97, "▼ growing backlog", fontsize=9,
             color="#888888", style="italic", va="top")
     add_insight_box(ax, [
-        "Ratio >100% means closing more than opening (shrinking backlog)",
         "runtime rose to ~115% in 2025 despite fewer maintainers — driven\n  by falling issue inflow (maturing product) not faster triage",
         "roslyn spikes (~2022-Q4, 2024-Q4, 2025-Q4) are deliberate stale issue\n  housekeeping — bulk-closing old Area-IDE issues (avg age 3-5 years)",
         "Most repos hover near 100% — roughly keeping pace",
     ])
+    add_direction_arrow(ax, "up")
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
     fig.savefig(path, dpi=150)
@@ -1001,9 +1004,8 @@ def chart_time_to_merge(all_ttm, output_dir):
     add_direction_arrow(ax, "down")
     # Insights: current p75 TTM for each repo
     add_insight_box(ax, [
-        "runtime and roslyn: fast merges (<5d p75) — strong review culture",
-        "maui p75 is 9x others — many partner/community PRs sit in queue",
-        "maui has Syncfusion contributors with 20-30 day median review waits",
+        "runtime and roslyn: fast merges (<5d p75)",
+        "maui p75 rose sharply mid-2024 when Syncfusion ramped up (22 engineers, 74% of community PRs)",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "time_to_merge_comparison.png")
@@ -2051,11 +2053,17 @@ def chart_community_pareto(all_items, output_dir):
     if dotnet_repos:
         avg_gini = sum(g[1] for g in dotnet_repos) / len(dotnet_repos)
         avg_onetime = sum(g[3]/g[2] for g in dotnet_repos) / len(dotnet_repos)
-        insights.append(f"dotnet avg Gini={avg_gini:.2f} — top 10% of authors produce ~65-80% of merged PRs")
+        # Show how many individuals = top 10% for the biggest dotnet repo (runtime)
+        runtime_entry = [g for g in dotnet_repos if g[0] == "runtime"]
+        top10_note = ""
+        if runtime_entry:
+            top10_n = max(1, runtime_entry[0][2] // 10)
+            top10_note = f" (~{top10_n} people in runtime)"
+        insights.append(f"dotnet avg Gini={avg_gini:.2f} — top 10% of authors{top10_note} produce ~65-80% of merged PRs")
         insights.append(f"~{avg_onetime*100:.0f}% of community authors across dotnet repos make exactly 1 PR")
     vscode = [g for g in gini_labels if g[0] == "vscode"]
     if vscode:
-        insights.append(f"vscode is most egalitarian (Gini={vscode[0][1]:.2f}) — broader but shallower community")
+        insights.append(f"vscode is most egalitarian (Gini={vscode[0][1]:.2f}) — broader but shallower community, perhaps fixing their own pet issue")
     add_insight_box(ax, insights)
 
     fig.tight_layout()
@@ -2131,7 +2139,7 @@ def chart_community_retention(all_items, output_dir):
 
         s = smooth(rates, 3)
         ax.plot(plot_dates, s, color=get_color(repo), label=get_short(repo),
-                linewidth=1.5, alpha=0.85, marker='o', markersize=3)
+                linewidth=1.5, alpha=0.85)
         visible_data.append(s)
         line_ends.append((plot_dates, s, get_short(repo), get_color(repo)))
         has_data = True
@@ -2148,7 +2156,7 @@ def chart_community_retention(all_items, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "runtime retention dropped from 40% to 22% (2020→2024) — fewer first-timers come back",
-        "rust retains best (~33-44%) thanks to mentoring programs and automated tooling",
+        "rust retains best (~33-44%), possibly due to mentoring programs and automated tooling",
         "vscode lowest (~20%) — large drive-by contributor pool, few repeat",
     ])
     fig.tight_layout()
@@ -2266,8 +2274,12 @@ def chart_community_merge_latency(all_items, output_dir):
 
     add_insight_box(ax_comm, [
         "maui community PRs wait ~8 days median vs <1 day for maintainers — 8× gap",
-        "rust achieves near-parity thanks to bors automation and reviewer queue",
-        "Long merge latency likely drives the retention drop — first-timers don't wait",
+        "rust achieves near-parity — large reviewer pool and explicit reviewer assignment via rustbot",
+        "Long merge latency potentially drives the retention drop in maui and runtime — first-timers don't wait",
+    ])
+    add_insight_box(ax_ratio, [
+        "Maintainer PRs are generally merged faster than community PRs across all repos",
+        "Possible factors: longer wait for first review, more revision cycles, less familiarity with codebase",
     ])
 
     fig.tight_layout()
@@ -2278,10 +2290,10 @@ def chart_community_merge_latency(all_items, output_dir):
 
 
 def chart_gini_over_time(all_items, output_dir):
-    """Gini coefficient of community PR concentration over time (annual)."""
+    """Gini coefficient of community PR concentration over time (half-year buckets)."""
     import numpy as np
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Community PR Concentration Over Time (Gini Coefficient, Annual)", "Gini Coefficient")
+    setup_axes(ax, "Community PR Concentration Over Time (Gini Coefficient, 6-month windows)", "Gini Coefficient")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.2f}"))
 
     visible_data = []
@@ -2296,8 +2308,9 @@ def chart_gini_over_time(all_items, output_dir):
                 maintainers.add(item["merged_by"])
         maintainers |= BOT_ACCOUNTS
 
-        # Count PRs per community author per year
-        year_authors = defaultdict(lambda: defaultdict(int))
+        # Count PRs per community author per half-year
+        from datetime import date
+        half_authors = defaultdict(lambda: defaultdict(int))
         for item in items:
             if not item["is_pr"] or not item.get("merged_at"):
                 continue
@@ -2305,33 +2318,32 @@ def chart_gini_over_time(all_items, output_dir):
             if not author or author in maintainers:
                 continue
             md = parse_date(item["merged_at"])
-            if not md:
+            if not md or md.year < 2018:
                 continue
-            year_authors[md.year][author] += 1
+            half = 1 if md.month <= 6 else 2
+            half_authors[(md.year, half)][author] += 1
 
-        years = []
+        plot_dates = []
         ginis = []
-        for year in sorted(year_authors):
-            if year < 2018 or year > 2024:
-                continue
-            vals = sorted(year_authors[year].values())
+        for key in sorted(half_authors):
+            y, h = key
+            vals = sorted(half_authors[key].values())
             n = len(vals)
             if n < 10:
                 continue
             gini = (2 * sum((i+1)*v for i,v in enumerate(vals)) - (n+1)*sum(vals)) / (n * sum(vals))
-            from datetime import date
-            years.append(date(year, 7, 1))
+            plot_dates.append(date(y, 4 if h == 1 else 10, 1))
             ginis.append(gini)
 
-        if len(years) < 3:
+        if len(plot_dates) < 4:
             continue
 
         short = get_short(repo)
         color = get_color(repo)
-        ax.plot(years, ginis, color=color, label=short,
-                linewidth=1.8, alpha=0.85, marker='o', markersize=5)
+        ax.plot(plot_dates, ginis, color=color, label=short,
+                linewidth=1.5, alpha=0.85)
         visible_data.append(ginis)
-        line_ends.append((years, ginis, short, color))
+        line_ends.append((plot_dates, ginis, short, color))
         has_data = True
 
     if not has_data:
