@@ -779,9 +779,9 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "dotnet repos dip each Nov — freeze before annual .NET release",
-        "runtime merge rate declining since late 2024 — likely driven\n  by ~10% drop in active maintainers over same period",
+        "runtime merge rate declining since late 2024 — likely driven\n  by ~10% drop in active maintainers over same period?",
         "vscode 3x jump mid-2022 was workflow shift to smaller PRs,\n  not a staffing increase (same ~175 authors)",
-        "rust's steady ~250/wk powered by bors merge bot — 98% of merges\n  automated, removing human bottleneck from the merge step",
+        "rust's steady ~250/wk — high volume driven by 1,000+ active contributors;\n  bors automates the merge step but review/iteration is still human",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
@@ -1118,9 +1118,9 @@ def chart_active_maintainers(all_maint, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
-        "runtime maintainers dropping since late 2023 (.NET 8 timeframe)\n  — may reflect org restructuring or natural attrition",
+        "runtime maintainers dropping since late 2023 (.NET 8 timeframe)",
         "vscode steadily growing — largest maintainer pool by far",
-        "maui volatile — tiny team (6-11 people), sensitive to individual changes",
+        "maui volatile — small team (6-11 people), sensitive to individual changes",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "active_maintainers_comparison.png")
@@ -1276,7 +1276,7 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Same upward trend as issues per maintainer — maintainer\n  workload is increasing across all repos",
-        "maui's tiny merge team (2-3 people) drives high per-person load",
+        "maui's small merge team (2-3 people) drives high per-person load",
         "roslyn rising sharply — 630+ open PRs (68% over 1yr old),\n  stale community PRs accumulating without being closed",
     ])
     fig.tight_layout()
@@ -1335,8 +1335,8 @@ def chart_contributor_diversity(all_items, output_dir):
     add_insight_box(ax, [
         "runtime community authors declining ~22% but PR volume held steady\n  — fewer people contributing more each (7.4 to 8.8 PRs/person)",
         "maui jumped mid-2024 — ~22 Syncfusion engineers began dedicated\n  contributions (74% of community PRs since Aug 2024)",
-        "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)",
-        "rust has broadest contributor base despite niche language",
+        "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)?",
+        "rust has broadest contributor base of all repos tracked",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
@@ -1348,7 +1348,7 @@ def chart_contributor_diversity(all_items, output_dir):
 def chart_issue_community(all_items, output_dir):
     """Distinct community issue openers per month (non-maintainers, 2-month window)."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Distinct Community Issue Openers (Non-Maintainers, 2-Month Window, 6-month avg)",
+    setup_axes(ax, "Distinct Community Issue Openers (2-Month Window, 6-month avg)",
                "Unique Community Openers")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
@@ -1405,9 +1405,7 @@ def chart_issue_community(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "Excludes maintainers — shows external community engagement only",
-        "vscode dominates due to massive user base reporting bugs",
-        "runtime/maui declining — likely product maturation (fewer novel bugs)\n  and better self-service (docs, Stack Overflow, Discord)",
+        "runtime/maui declining — product maturation (fewer novel bugs)\n  and better self-service (docs, Stack Overflow, Discord)?",
         "Could also signal community disengagement if issues feel ignored\n  — open backlog % is rising (runtime 14% to 30% since 2022)\n  though initial turnaround has held steady",
     ])
     fig.tight_layout()
@@ -1420,7 +1418,7 @@ def chart_issue_community(all_items, output_dir):
 def chart_community_issue_volume(all_items, output_dir):
     """Monthly count of issues opened by community (non-maintainer) members."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Issues Opened by Community (Non-Maintainers, 6-month avg)",
+    setup_axes(ax, "Issues Opened by Community (6-month avg)",
                "Issues / Month")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
@@ -1467,9 +1465,9 @@ def chart_community_issue_volume(all_items, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_insight_box(ax, [
+        "All dotnet repos show the same pattern: community issue volume peaked ~2022 and is declining",
         "runtime volume declining since 2022 — but community share of new issues\n  is rising (55% to 62%) as team files fewer issues",
         "vscode volume tracks product adoption — dwarfs all other repos",
-        "Declining volume + rising community % = healthy maturation pattern",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_volume.png")
@@ -1481,7 +1479,7 @@ def chart_community_issue_volume(all_items, output_dir):
 def chart_community_issue_share(all_items, output_dir):
     """% of issues opened by community (non-maintainers) per month."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Community Share of Issues (% Non-Maintainer, 6-month avg)",
+    setup_axes(ax, "Community Share of Issues (6-month avg)",
                "% Community")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
@@ -1548,14 +1546,14 @@ def chart_community_issue_share(all_items, output_dir):
 def chart_community_pr_share(all_items, output_dir):
     """% of PRs opened by community (non-maintainers) per month."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Community Share of PRs (% Non-Maintainer, 6-month avg)",
+    setup_axes(ax, "Community Share of PRs (6-month avg)",
                "% Community")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     visible_data = []
     line_ends = []
     for repo, items in all_items.items():
-        if repo in GERRIT_REPOS:
+        if repo in GERRIT_REPOS or repo in BOT_MERGER_REPOS:
             continue
         maintainers = set()
         for item in items:
@@ -1603,7 +1601,6 @@ def chart_community_pr_share(all_items, output_dir):
         "vscode ~92% community PRs — almost entirely external contributors",
         "runtime ~70% community — healthy mix of team + external",
         "maui community share surged mid-2024 with Syncfusion partnership\n  — 22 dedicated engineers now contributing regularly",
-        "rust near 100% is misleading — we detect maintainers via merged_by,\n  but bors merges everything, so real team members look like community",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pr_share.png")
@@ -1667,6 +1664,7 @@ def chart_copilot_adoption(all_items, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "Shows adoption of Copilot SWE Agent for PR creation",
+        "Across dotnet repos, ~100% of Copilot PRs are requested by maintainers, not community",
         "runtime is early/aggressive adopter — reflects team investment",
         "Rapid month-over-month growth across all dotnet repos",
     ])
@@ -1808,7 +1806,7 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
     add_insight_box(ax, [
         "Most repos hold steady over time — community turnaround is consistent",
         "runtime holding steady despite fewer maintainers — sustainable so far",
-        "aspire and maui recently declining — possible team bandwidth pressure",
+        "aspire and maui recently declining — team bandwidth pressure?",
         "Lower than overall turnaround — team issues always get faster triage",
     ])
     fig.tight_layout()
@@ -1890,8 +1888,6 @@ def chart_community_time_to_close(all_items, output_dir):
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "roslyn dwarfs others — confirmed by label data: feature requests\n  take 248d median vs 70d for bugs (p75 is 3 years vs 1.9 years)",
-        "roslyn's bulk housekeeping closures (2022, 2024) of old issues\n  push p75 even higher in those years",
-        "go and rust will appear once issue author backfill completes",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
@@ -1979,7 +1975,6 @@ def chart_community_issue_age(all_items, output_dir):
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
         "Shows staleness of unresolved community issue backlog",
-        "go's flat line is partial data (author backfill incomplete past 2015)",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_age.png")
@@ -1989,10 +1984,10 @@ def chart_community_issue_age(all_items, output_dir):
 
 
 def chart_community_pareto(all_items, output_dir):
-    """Lorenz curve showing community PR contribution concentration per repo."""
+    """Community PR contribution concentration curve per repo."""
     import numpy as np
     fig, ax = plt.subplots(figsize=(14, 7))
-    ax.set_title("Community PR Concentration (Lorenz Curve)", fontsize=14, fontweight="bold", pad=12)
+    ax.set_title("Community PR Concentration", fontsize=14, fontweight="bold", pad=12)
     ax.set_xlabel("Cumulative % of Community Authors (ranked by PR count)", fontsize=10)
     ax.set_ylabel("Cumulative % of Merged PRs", fontsize=10)
     ax.grid(True, alpha=0.3)
@@ -2036,10 +2031,15 @@ def chart_community_pareto(all_items, output_dir):
         # Gini coefficient
         gini = (2 * sum((i+1)*v for i,v in enumerate(vals)) - (n+1)*sum(vals)) / (n * sum(vals))
 
+        # Top 10% share
+        top10_n = max(1, n // 10)
+        top10_prs = sum(vals[-top10_n:])
+        top10_pct = 100.0 * top10_prs / total
+
         short = get_short(repo)
         ax.plot(x, y, color=get_color(repo), label=f"{short} (Gini={gini:.2f})",
                 linewidth=1.8, alpha=0.85)
-        gini_labels.append((short, gini, n, len([v for v in vals if v == 1])))
+        gini_labels.append((short, gini, n, len([v for v in vals if v == 1]), top10_pct))
 
     # Perfect equality line
     ax.plot([0, 100], [0, 100], 'k--', alpha=0.3, linewidth=1, label="Perfect equality")
@@ -2053,17 +2053,15 @@ def chart_community_pareto(all_items, output_dir):
     if dotnet_repos:
         avg_gini = sum(g[1] for g in dotnet_repos) / len(dotnet_repos)
         avg_onetime = sum(g[3]/g[2] for g in dotnet_repos) / len(dotnet_repos)
-        # Show how many individuals = top 10% for the biggest dotnet repo (runtime)
         runtime_entry = [g for g in dotnet_repos if g[0] == "runtime"]
-        top10_note = ""
         if runtime_entry:
-            top10_n = max(1, runtime_entry[0][2] // 10)
-            top10_note = f" (~{top10_n} people in runtime)"
-        insights.append(f"dotnet avg Gini={avg_gini:.2f} — top 10% of authors{top10_note} produce ~65-80% of merged PRs")
+            r = runtime_entry[0]
+            top10_n = max(1, r[2] // 10)
+            insights.append(f"runtime: top 10% ({top10_n} people) produced {r[4]:.0f}% of all community merged PRs")
         insights.append(f"~{avg_onetime*100:.0f}% of community authors across dotnet repos make exactly 1 PR")
     vscode = [g for g in gini_labels if g[0] == "vscode"]
     if vscode:
-        insights.append(f"vscode is most egalitarian (Gini={vscode[0][1]:.2f}) — broader but shallower community, perhaps fixing their own pet issue")
+        insights.append(f"vscode is most egalitarian (Gini={vscode[0][1]:.2f}) — broader but shallower community, perhaps fixing their own pet issue?")
     add_insight_box(ax, insights)
 
     fig.tight_layout()
@@ -2105,14 +2103,13 @@ def chart_community_retention(all_items, output_dir):
         for a in author_dates:
             author_dates[a].sort()
 
-        # Group by half-year cohort (for smoother line than annual)
+        # Group by quarter cohort
         from collections import Counter
         cohorts = defaultdict(lambda: {"total": 0, "returned": 0})
         for author, dates in author_dates.items():
             first = dates[0]
-            # Half-year bucket: Jan-Jun = H1, Jul-Dec = H2
-            half = 1 if first.month <= 6 else 2
-            key = (first.year, half)
+            q = (first.month - 1) // 3 + 1
+            key = (first.year, q)
             if first.year < 2019 or first.year > 2024:
                 continue
             cohorts[key]["total"] += 1
@@ -2121,23 +2118,25 @@ def chart_community_retention(all_items, output_dir):
                 if days_to_second <= 365:
                     cohorts[key]["returned"] += 1
 
-        if len(cohorts) < 3:
+        if len(cohorts) < 4:
             continue
 
         sorted_keys = sorted(cohorts.keys())
         from datetime import date
-        plot_dates = [date(y, 4 if h == 1 else 10, 1) for y, h in sorted_keys]
+        # Place each quarter at its midpoint
+        q_months = {1: 2, 2: 5, 3: 8, 4: 11}
+        plot_dates = [date(y, q_months[q], 15) for y, q in sorted_keys]
         rates = [100.0 * cohorts[k]["returned"] / max(1, cohorts[k]["total"]) for k in sorted_keys]
 
-        # Skip last cohort if too recent (< 12 months to observe)
+        # Skip last cohorts if too recent (< 12 months to observe)
         cutoff = datetime.now().date() - timedelta(days=365)
         while plot_dates and plot_dates[-1] > cutoff:
             plot_dates.pop()
             rates.pop()
-        if len(rates) < 3:
+        if len(rates) < 4:
             continue
 
-        s = smooth(rates, 3)
+        s = smooth(rates, 4)
         ax.plot(plot_dates, s, color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
         visible_data.append(s)
@@ -2156,7 +2155,7 @@ def chart_community_retention(all_items, output_dir):
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
         "runtime retention dropped from 40% to 22% (2020→2024) — fewer first-timers come back",
-        "rust retains best (~33-44%), possibly due to mentoring programs and automated tooling",
+        "rust retains best (~33-44%), possibly due to mentoring programs and automated tooling?",
         "vscode lowest (~20%) — large drive-by contributor pool, few repeat",
     ])
     fig.tight_layout()
@@ -2270,16 +2269,15 @@ def chart_community_merge_latency(all_items, output_dir):
     ax_ratio.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, linewidth=1)
     ax_ratio.legend(loc="upper right", fontsize=9)
     label_line_ends(ax_ratio, line_ends_ratio)
-    add_direction_arrow(ax_ratio, "down")
 
     add_insight_box(ax_comm, [
         "maui community PRs wait ~8 days median vs <1 day for maintainers — 8× gap",
         "rust achieves near-parity — large reviewer pool and explicit reviewer assignment via rustbot",
-        "Long merge latency potentially drives the retention drop in maui and runtime — first-timers don't wait",
+        "Long merge latency potentially drives the retention drop in maui and runtime — first-timers don't wait?",
     ])
     add_insight_box(ax_ratio, [
         "Maintainer PRs are generally merged faster than community PRs across all repos",
-        "Possible factors: longer wait for first review, more revision cycles, less familiarity with codebase",
+        "Possible factors: longer wait for first review, more revision cycles, less familiarity with codebase?",
     ])
 
     fig.tight_layout()
@@ -2354,9 +2352,13 @@ def chart_gini_over_time(all_items, output_dir):
     ax.set_ylim(0.2, 1.0)
     ax.legend(loc="lower left", fontsize=10)
     label_line_ends(ax, line_ends)
-    add_direction_arrow(ax, "down")
+    # Custom arrow — higher Gini means fewer people do more work (not clearly better/worse)
+    ax.annotate("", xy=(0.06, 0.55), xytext=(0.06, 0.35), xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>,head_width=0.6,head_length=0.4",
+                                color="black", lw=3))
+    ax.text(0.06, 0.57, "Fewer people\ndo more work", transform=ax.transAxes, fontsize=8,
+            ha="center", va="bottom", color="black", style="italic")
     add_insight_box(ax, [
-        "Higher Gini = more concentrated (fewer people doing more of the work)",
         "maui spiked 0.40→0.64 in 2024 (Syncfusion partnership effect)",
         "vscode stays low (~0.40) — most evenly distributed community",
         "runtime stable ~0.67 — concentrated but not worsening",
