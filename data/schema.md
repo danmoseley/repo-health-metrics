@@ -21,6 +21,7 @@ Core table: every issue and PR across all tracked repos.
 | `author` | TEXT | yes | — | GitHub username who opened the item |
 | `merged_by` | TEXT | yes | — | GitHub username who merged (PRs only) |
 | `copilot_requester` | TEXT | yes | — | If PR was authored by Copilot, the human who requested it |
+| `copilot_trailer` | INTEGER | yes | — | 1 = first commit has Co-authored-by: Copilot trailer, 0 = checked/no trailer, NULL = not checked |
 
 **Primary key:** `(repo, number)`
 
@@ -107,4 +108,5 @@ is_pull_request=1  author=cuishuang  merged_by=cuishuang
 | `fetch.py` | All issues + PRs (core fields) | REST | repo, number, created_at, closed_at, state, is_pull_request, merged_at, labels, author |
 | `fetch_mergers.py` | merged_by for merged PRs | GraphQL | merged_by |
 | `fetch_copilot_requesters.py` | Copilot requester for Copilot PRs | GraphQL | copilot_requester |
+| `fetch_copilot_commits.py` | Co-authored-by: Copilot trailer in first commit | GraphQL | copilot_trailer |
 | `fetch_issue_authors.py` | Author for issues (backfill) | REST | author (for issues only) |

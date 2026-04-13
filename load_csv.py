@@ -42,6 +42,7 @@ def main():
             author TEXT,
             merged_by TEXT,
             copilot_requester TEXT,
+            copilot_trailer INTEGER,
             PRIMARY KEY (repo, number)
         );
         CREATE INDEX idx_items_repo_type ON items(repo, is_pull_request);
@@ -69,15 +70,15 @@ def main():
         for row in reader:
             row = nullify(row)
             # Pad with None if CSV has fewer columns than table
-            while len(row) < 11:
+            while len(row) < 12:
                 row.append(None)
-            batch.append(row[:11])
+            batch.append(row[:12])
             if len(batch) >= 10000:
                 conn.executemany(
                     "INSERT OR REPLACE INTO items "
                     "(repo, number, created_at, closed_at, state, is_pull_request, "
-                    "merged_at, labels, author, merged_by, copilot_requester) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)", batch
+                    "merged_at, labels, author, merged_by, copilot_requester, copilot_trailer) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", batch
                 )
                 count += len(batch)
                 batch = []
@@ -87,8 +88,8 @@ def main():
             conn.executemany(
                 "INSERT OR REPLACE INTO items "
                 "(repo, number, created_at, closed_at, state, is_pull_request, "
-                "merged_at, labels, author, merged_by, copilot_requester) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)", batch
+                "merged_at, labels, author, merged_by, copilot_requester, copilot_trailer) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", batch
             )
             count += len(batch)
 
