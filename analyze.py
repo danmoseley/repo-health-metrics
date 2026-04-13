@@ -130,13 +130,24 @@ def load_items(conn, repo):
     for load_repo, prs_only in repos_to_load:
         if prs_only:
             sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                   "author, merged_by, copilot_requester "
+                   "author, merged_by, copilot_requester, copilot_trailer "
                    "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
+            fallback_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+                            "author, merged_by, copilot_requester, NULL AS copilot_trailer "
+                            "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
         else:
             sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                   "author, merged_by, copilot_requester "
+                   "author, merged_by, copilot_requester, copilot_trailer "
                    "FROM items WHERE repo = ? ORDER BY created_at")
-        rows = conn.execute(sql, (load_repo,)).fetchall()
+            fallback_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+                            "author, merged_by, copilot_requester, NULL AS copilot_trailer "
+                            "FROM items WHERE repo = ? ORDER BY created_at")
+        try:
+            rows = conn.execute(sql, (load_repo,)).fetchall()
+        except sqlite3.OperationalError as e:
+            if "no such column: copilot_trailer" not in str(e):
+                raise
+            rows = conn.execute(fallback_sql, (load_repo,)).fetchall()
         for r in rows:
             items.append({
                 "number": r[0],
@@ -148,6 +159,7 @@ def load_items(conn, repo):
                 "author": r[6],
                 "merged_by": r[7],
                 "copilot_requester": r[8],
+                "copilot_trailer": r[9],
             })
 
     # Fix transferred issue dates for repos with lineage
@@ -1611,46 +1623,88 @@ def chart_community_pr_share(all_items, output_dir):
 
 COPILOT_AUTHORS = {"copilot-swe-agent[bot]", "Copilot"}
 
+def _classify_copilot(item):
+    """Classify a PR's Copilot involvement.
+    Returns: 'cca', 'assisted', 'none', or 'unknown'.
+    - 'cca': author is a known Copilot bot (regardless of trailer)
+    - 'assisted': human author with Co-authored-by: Copilot trailer
+    - 'none': human author, checked, no trailer
+    - 'unknown': not yet checked (copilot_trailer IS NULL)
+    """
+    author = item.get("author") or ""
+    if author in COPILOT_AUTHORS:
+        return "cca"
+    trailer = item.get("copilot_trailer")
+    if trailer is None:
+        return "unknown"
+    if trailer == 1:
+        return "assisted"
+    return "none"
+
 def chart_copilot_adoption(all_items, output_dir):
-    """Copilot-authored PRs as % of all PRs, weekly with 2-week smoothing."""
+    """Two Copilot charts: aggregated % and CCA vs Copilot-assisted split."""
+    from datetime import date as _date
+    today = _date.today()
+
+    # Determine which repos have sufficient trailer coverage (>= 80% of recent PRs checked)
+    # Only check PRs in the fetch window (last 12 months) to match what was actually fetched
+    # Without this, repos with partial data (e.g., SAML failures) show misleading percentages
+    coverage_cutoff = today - timedelta(days=365)
+    repos_with_coverage = set()
+    for repo, items in all_items.items():
+        recent_prs = []
+        for i in items:
+            if not i["is_pr"]:
+                continue
+            cd = parse_date(i["created_at"])
+            if cd and cd >= coverage_cutoff:
+                recent_prs.append(i)
+        if not recent_prs:
+            continue
+        checked = sum(1 for i in recent_prs if i.get("copilot_trailer") is not None)
+        coverage = checked / len(recent_prs)
+        if coverage >= 0.8:
+            repos_with_coverage.add(repo)
+        else:
+            print(f"  Skipping {repo} from Copilot charts: only {coverage:.0%} trailer coverage")
+
+    # --- Chart 1: All Copilot PRs as % of All PRs ---
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Copilot PRs as % of All PRs (4-week avg)", "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     line_ends = []
     for repo, items in all_items.items():
+        if repo not in repos_with_coverage:
+            continue
         total_by_week = defaultdict(int)
         copilot_by_week = defaultdict(int)
         for item in items:
             if not item["is_pr"]:
                 continue
+            cls = _classify_copilot(item)
+            if cls == "unknown":
+                continue  # exclude unchecked PRs
             cd = parse_date(item["created_at"])
             if not cd:
                 continue
-            # ISO week start (Monday)
             week = cd - timedelta(days=cd.weekday())
-            author = item.get("author") or ""
             total_by_week[week] += 1
-            if author in COPILOT_AUTHORS:
+            if cls in ("cca", "assisted"):
                 copilot_by_week[week] += 1
 
         if not total_by_week:
             continue
         weeks = sorted(total_by_week.keys())
-        # Only show weeks where Copilot existed (2024+)
-        weeks = [w for w in weeks if w.year >= 2024]
+        weeks = [w for w in weeks if w >= coverage_cutoff]
         if not weeks:
             continue
-        # Drop last week if it's partial (less than 7 days old)
-        from datetime import date as _date
-        today = _date.today()
         if (today - weeks[-1]).days < 7:
             weeks = weeks[:-1]
         if not weeks:
             continue
         pcts = [100.0 * copilot_by_week.get(w, 0) / total_by_week[w]
                 if total_by_week[w] >= 5 else None for w in weeks]
-        # Fill None with 0 for smoothing
         pcts_clean = [p if p is not None else 0.0 for p in pcts]
         smoothed = smooth(pcts_clean, 4)
         ax.plot(weeks, smoothed,
@@ -1663,13 +1717,81 @@ def chart_copilot_adoption(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "Shows adoption of Copilot SWE Agent for PR creation",
-        "Across dotnet repos, ~100% of Copilot PRs are requested by maintainers, not community",
-        "runtime is early/aggressive adopter — reflects team investment",
-        "Rapid month-over-month growth across all dotnet repos",
+        "Combines CCA (bot-authored) + Copilot-assisted (human + Co-authored-by trailer)",
+        "Excludes PRs where trailer status is unknown (not yet checked)",
+        "First-commit-only heuristic — may undercount Copilot usage",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_adoption.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+    # --- Chart 2: CCA vs Copilot-Assisted split (separate lines per repo) ---
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot PRs by Type (4-week avg)", "PRs / week")
+
+    line_ends = []
+    for repo, items in all_items.items():
+        if repo not in repos_with_coverage:
+            continue
+        cca_by_week = defaultdict(int)
+        assisted_by_week = defaultdict(int)
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cls = _classify_copilot(item)
+            cd = parse_date(item["created_at"])
+            if not cd:
+                continue
+            week = cd - timedelta(days=cd.weekday())
+            if cls == "cca":
+                cca_by_week[week] += 1
+            elif cls == "assisted":
+                assisted_by_week[week] += 1
+
+        # Only plot if there's meaningful data
+        all_weeks = sorted(set(list(cca_by_week.keys()) + list(assisted_by_week.keys())))
+        all_weeks = [w for w in all_weeks if w >= coverage_cutoff]
+        if not all_weeks:
+            continue
+        if (today - all_weeks[-1]).days < 7:
+            all_weeks = all_weeks[:-1]
+        if not all_weeks:
+            continue
+
+        cca_vals = [cca_by_week.get(w, 0) for w in all_weeks]
+        assisted_vals = [assisted_by_week.get(w, 0) for w in all_weeks]
+
+        cca_smooth = smooth(cca_vals, 4)
+        assisted_smooth = smooth(assisted_vals, 4)
+
+        color = get_color(repo)
+        short = get_short(repo)
+
+        # CCA as solid line, assisted as dashed
+        if any(v > 0 for v in cca_smooth):
+            ax.plot(all_weeks, cca_smooth,
+                    color=color, label=f"{short} CCA",
+                    linewidth=2, alpha=0.85)
+            line_ends.append((all_weeks, cca_smooth, f"{short} CCA", color))
+        if any(v > 0 for v in assisted_smooth):
+            ax.plot(all_weeks, assisted_smooth,
+                    color=color, label=f"{short} assisted",
+                    linewidth=2, alpha=0.85, linestyle="--")
+            line_ends.append((all_weeks, assisted_smooth, f"{short} assisted", color))
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper left", fontsize=9, ncol=2)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
+    add_insight_box(ax, [
+        "CCA = Copilot Cloud Agent (bot-authored PRs, solid lines)",
+        "Assisted = human author with Co-authored-by: Copilot trailer (dashed)",
+        "Shows whether growth comes from CCA, local Copilot use, or both",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_by_type.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -1882,12 +2004,13 @@ def chart_community_time_to_close(all_items, output_dir):
         return
 
     ymin, ymax = robust_ylim(visible_data)
+    ymax = min(ymax, 400)          # crop to 400 days max
     ax.set_ylim(ymin, ymax)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "roslyn dwarfs others — feature requests take ~456d median\n  vs ~57d for bugs, driven by long-lived enhancement requests",
+        "roslyn has long-tail close times driven by enhancement requests",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
