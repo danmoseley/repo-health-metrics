@@ -24,7 +24,7 @@ from pathlib import Path
 
 REPOS = [
     "golang/go",          # smallest, good for pipeline validation
-    "dotnet/aspire",
+    "microsoft/aspire",   # aspire moved from dotnet/ to microsoft/ ~Mar 2026
     "dotnet/maui",
     "dotnet/roslyn",
     "dotnet/runtime",

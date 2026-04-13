@@ -24,7 +24,7 @@ REPOS = [
     "dotnet/runtime",
     "dotnet/roslyn",
     "dotnet/maui",
-    "dotnet/aspire",
+    "microsoft/aspire",
     "microsoft/vscode",
     "rust-lang/rust",
     "golang/go",

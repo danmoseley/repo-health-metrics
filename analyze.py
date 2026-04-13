@@ -43,7 +43,8 @@ REPO_COLORS = {
     "dotnet/runtime": "#512BD4",   # .NET purple
     "dotnet/roslyn": "#E91E63",    # pink/magenta
     "dotnet/maui": "#FF8F00",      # amber/orange
-    "dotnet/aspire": "#4CAF50",    # green
+    "dotnet/aspire": "#4CAF50",    # green (transferred to microsoft/aspire)
+    "microsoft/aspire": "#4CAF50", # green
     "microsoft/vscode": "#007ACC", # VS Code blue
     "rust-lang/rust": "#B7410E",   # rust red-brown
     "golang/go": "#00897B",        # teal
@@ -54,6 +55,7 @@ REPO_SHORT = {
     "dotnet/roslyn": "roslyn",
     "dotnet/maui": "maui",
     "dotnet/aspire": "aspire",
+    "microsoft/aspire": "aspire",
     "microsoft/vscode": "vscode",
     "rust-lang/rust": "rust",
     "golang/go": "go",
@@ -1668,6 +1670,24 @@ def chart_copilot_adoption(all_items, output_dir):
         else:
             print(f"  Skipping {repo} from Copilot charts: only {coverage:.0%} trailer coverage")
 
+    # Determine common end date across repos so all lines end at the same point.
+    # Without this, repos fetched at different times have different line lengths.
+    latest_weeks_per_repo = []
+    for repo, items in all_items.items():
+        if repo not in repos_with_coverage:
+            continue
+        max_cd = None
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            if cd and (max_cd is None or cd > max_cd):
+                max_cd = cd
+        if max_cd:
+            latest_weeks_per_repo.append(max_cd - timedelta(days=max_cd.weekday()))
+    # Cap at the earliest repo's latest week so no line extends beyond what others can show
+    common_end_week = min(latest_weeks_per_repo) if latest_weeks_per_repo else None
+
     # --- Chart 1: All Copilot PRs as % of All PRs ---
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Copilot PRs as % of All PRs (4-week avg)", "% of PRs")
@@ -1697,6 +1717,8 @@ def chart_copilot_adoption(all_items, output_dir):
             continue
         weeks = sorted(total_by_week.keys())
         weeks = [w for w in weeks if w >= coverage_cutoff]
+        if common_end_week:
+            weeks = [w for w in weeks if w <= common_end_week]
         if not weeks:
             continue
         if (today - weeks[-1]).days < 7:
@@ -1717,6 +1739,7 @@ def chart_copilot_adoption(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
+        "Each point = 4-week rolling average of % of PRs created that week with Copilot involvement",
         "Combines CCA (bot-authored) + Copilot-assisted (human + Co-authored-by trailer)",
         "Excludes PRs where trailer status is unknown (not yet checked)",
         "First-commit-only heuristic — may undercount Copilot usage",
@@ -1753,6 +1776,8 @@ def chart_copilot_adoption(all_items, output_dir):
         # Only plot if there's meaningful data
         all_weeks = sorted(set(list(cca_by_week.keys()) + list(assisted_by_week.keys())))
         all_weeks = [w for w in all_weeks if w >= coverage_cutoff]
+        if common_end_week:
+            all_weeks = [w for w in all_weeks if w <= common_end_week]
         if not all_weeks:
             continue
         if (today - all_weeks[-1]).days < 7:
@@ -1786,12 +1811,213 @@ def chart_copilot_adoption(all_items, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
     add_insight_box(ax, [
+        "Each point = 4-week rolling average of PRs created that week, by Copilot involvement type",
         "CCA = Copilot Cloud Agent (bot-authored PRs, solid lines)",
         "Assisted = human author with Co-authored-by: Copilot trailer (dashed)",
         "Shows whether growth comes from CCA, local Copilot use, or both",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_by_type.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_copilot_merge_success(all_items, output_dir):
+    """Line chart: monthly merge rate for Copilot vs human PRs (runtime only)."""
+    from datetime import date as _date
+    today = _date.today()
+    coverage_cutoff = today - timedelta(days=365)
+    MIN_RESOLVED_MONTH = 10  # minimum resolved PRs per month to plot a point
+
+    repo = "dotnet/runtime"
+    if repo not in all_items:
+        print("  (skipping copilot merge rate trend — runtime not in data)")
+        return
+
+    items = all_items[repo]
+
+    # Bucket by creation month, split Copilot (CCA+assisted) vs Human
+    # Track total PRs (including open) to compute resolution rate for censoring check
+    monthly = defaultdict(lambda: {"cop_m": 0, "cop_r": 0, "cop_open": 0,
+                                    "hum_m": 0, "hum_r": 0, "hum_open": 0})
+    for item in items:
+        if not item["is_pr"]:
+            continue
+        cd = parse_date(item["created_at"])
+        if not cd or cd < coverage_cutoff:
+            continue
+        cls = _classify_copilot(item)
+        if cls == "unknown":
+            continue
+        is_cop = cls in ("cca", "assisted")
+        pfx = "cop" if is_cop else "hum"
+        month = cd.replace(day=1)
+        if item.get("merged_at"):
+            monthly[month][pfx + "_m"] += 1
+        elif item.get("state") == "CLOSED":
+            monthly[month][pfx + "_r"] += 1
+        else:
+            monthly[month][pfx + "_open"] += 1
+
+    months = sorted(monthly.keys())
+    # Drop current month if incomplete (< 14 days in)
+    if months and (today - months[-1]).days < 14:
+        months = months[:-1]
+    # Drop months where < 90% of PRs are resolved (right-censoring bias)
+    MIN_RESOLUTION_RATE = 0.90
+    months = [m for m in months if (
+        (monthly[m]["cop_m"] + monthly[m]["cop_r"] + monthly[m]["hum_m"] + monthly[m]["hum_r"]) /
+        max(1, monthly[m]["cop_m"] + monthly[m]["cop_r"] + monthly[m]["cop_open"] +
+            monthly[m]["hum_m"] + monthly[m]["hum_r"] + monthly[m]["hum_open"])
+    ) >= MIN_RESOLUTION_RATE]
+    if not months:
+        print("  (skipping copilot merge rate trend — no data)")
+        return
+
+    cop_rates, hum_rates = [], []
+    cop_ns, hum_ns = [], []
+    for m in months:
+        d = monthly[m]
+        cr = d["cop_m"] + d["cop_r"]
+        hr = d["hum_m"] + d["hum_r"]
+        cop_rates.append(100 * d["cop_m"] / cr if cr >= MIN_RESOLVED_MONTH else float("nan"))
+        hum_rates.append(100 * d["hum_m"] / hr if hr >= MIN_RESOLVED_MONTH else float("nan"))
+        cop_ns.append(cr)
+        hum_ns.append(hr)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PR Merge Rate: Copilot vs Human — dotnet/runtime (Monthly)", "Merge Rate (%)")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+    # Override default year-based ticks — our range is ~12 months
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+
+    ax.plot(months, cop_rates, color="#e74c3c", label="Copilot (CCA + assisted)",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.plot(months, hum_rates, color="#3498db", label="Human (no trailer)",
+            linewidth=2.5, alpha=0.9, marker="s", markersize=4)
+
+    # Annotate sample sizes on Copilot line
+    for m, rate, n in zip(months, cop_rates, cop_ns):
+        if rate == rate and n > 0:  # not NaN
+            ax.annotate(f"n={n}", (m, rate), textcoords="offset points",
+                        xytext=(0, 10), fontsize=7, color="#999", ha="center")
+
+    ax.set_ylim(0, 109)
+    ax.legend(loc="lower right", fontsize=11)
+    add_insight_box(ax, [
+        "Each point = merge rate of PRs created that month (merged / resolved)",
+        "Months with <90% resolution rate excluded to avoid censoring bias",
+        "Copilot merge rate increased over the period",
+        "Trailer is a lower-bound proxy — not all Copilot use leaves a trailer",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_merge_success.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_copilot_time_to_merge(all_items, output_dir):
+    """Line chart: monthly median TTM for Copilot vs human PRs (runtime only)."""
+    from datetime import date as _date
+    today = _date.today()
+    coverage_cutoff = today - timedelta(days=365)
+    MIN_MERGED_MONTH = 10  # minimum merged PRs per month to plot a point
+
+    repo = "dotnet/runtime"
+    if repo not in all_items:
+        print("  (skipping copilot TTM trend — runtime not in data)")
+        return
+
+    items = all_items[repo]
+
+    # Bucket by creation month, collect TTM values and total PR counts for censoring
+    monthly_ttm = defaultdict(lambda: {"cop": [], "hum": []})
+    monthly_resolved = defaultdict(lambda: {"cop": 0, "hum": 0})
+    monthly_total = defaultdict(lambda: {"cop": 0, "hum": 0})
+    for item in items:
+        if not item["is_pr"]:
+            continue
+        cd = parse_date(item["created_at"])
+        if not cd or cd < coverage_cutoff:
+            continue
+        cls = _classify_copilot(item)
+        if cls == "unknown":
+            continue
+        is_cop = cls in ("cca", "assisted")
+        key = "cop" if is_cop else "hum"
+        month = cd.replace(day=1)
+        monthly_total[month][key] += 1
+        if item.get("merged_at"):
+            monthly_resolved[month][key] += 1
+            md = parse_date(item["merged_at"])
+            if md:
+                days = (md - cd).days + (md - cd).seconds / 86400
+                monthly_ttm[month][key].append(days)
+        elif item.get("state") == "CLOSED":
+            monthly_resolved[month][key] += 1
+
+    months = sorted(monthly_total.keys())
+    if months and (today - months[-1]).days < 14:
+        months = months[:-1]
+    # Drop months where < 90% of PRs are resolved (merged or closed) to avoid survivorship bias
+    MIN_RESOLUTION_RATE = 0.90
+    months = [m for m in months if (
+        (monthly_resolved[m]["cop"] + monthly_resolved[m]["hum"]) /
+        max(1, monthly_total[m]["cop"] + monthly_total[m]["hum"])
+    ) >= MIN_RESOLUTION_RATE]
+    if not months:
+        print("  (skipping copilot TTM trend — no data)")
+        return
+
+    import numpy as np
+    cop_p50, hum_p50 = [], []
+    cop_p75, hum_p75 = [], []
+    cop_ns, hum_ns = [], []
+    for m in months:
+        d = monthly_ttm[m]
+        for key, p50_list, p75_list, n_list in [
+            ("cop", cop_p50, cop_p75, cop_ns),
+            ("hum", hum_p50, hum_p75, hum_ns),
+        ]:
+            vals = sorted(d[key])
+            n_list.append(len(vals))
+            if len(vals) >= MIN_MERGED_MONTH:
+                p50_list.append(float(np.median(vals)))
+                p75_list.append(float(np.percentile(vals, 75)))
+            else:
+                p50_list.append(float("nan"))
+                p75_list.append(float("nan"))
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)", "Days")
+    # Override default year-based ticks — our range is ~12 months
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+
+    ax.plot(months, cop_p50, color="#e74c3c", label="Copilot (CCA + assisted) p50",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.fill_between(months, cop_p50, cop_p75, color="#e74c3c", alpha=0.15, label="Copilot p50–p75")
+    ax.plot(months, hum_p50, color="#3498db", label="Human p50",
+            linewidth=2.5, alpha=0.9, marker="s", markersize=4)
+    ax.fill_between(months, hum_p50, hum_p75, color="#3498db", alpha=0.15, label="Human p50–p75")
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper right", fontsize=10)
+    add_insight_box(ax, [
+        "Each point = median TTM of PRs created that month (merged PRs only)",
+        "Months with low resolution rate excluded to avoid survivorship bias",
+        "TTM broadly similar — the difference is merge rate, not speed",
+        "Shaded region = 50th to 75th percentile spread",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_time_to_merge.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -2590,6 +2816,8 @@ def main():
             chart_open_prs_per_maintainer(all_series, all_maint, output_dir)
             chart_contributor_diversity(all_items, output_dir)
             chart_copilot_adoption(all_items, output_dir)
+            chart_copilot_merge_success(all_items, output_dir)
+            chart_copilot_time_to_merge(all_items, output_dir)
             chart_issue_community(all_items, output_dir)
             chart_community_issue_volume(all_items, output_dir)
             chart_community_issue_share(all_items, output_dir)
