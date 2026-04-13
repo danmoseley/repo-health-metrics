@@ -132,11 +132,22 @@ def load_items(conn, repo):
             sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
                    "author, merged_by, copilot_requester, copilot_trailer "
                    "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
+            fallback_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+                            "author, merged_by, copilot_requester, NULL AS copilot_trailer "
+                            "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
         else:
             sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
                    "author, merged_by, copilot_requester, copilot_trailer "
                    "FROM items WHERE repo = ? ORDER BY created_at")
-        rows = conn.execute(sql, (load_repo,)).fetchall()
+            fallback_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+                            "author, merged_by, copilot_requester, NULL AS copilot_trailer "
+                            "FROM items WHERE repo = ? ORDER BY created_at")
+        try:
+            rows = conn.execute(sql, (load_repo,)).fetchall()
+        except sqlite3.OperationalError as e:
+            if "no such column: copilot_trailer" not in str(e):
+                raise
+            rows = conn.execute(fallback_sql, (load_repo,)).fetchall()
         for r in rows:
             items.append({
                 "number": r[0],
@@ -1641,8 +1652,13 @@ def chart_copilot_adoption(all_items, output_dir):
     coverage_cutoff = today - timedelta(days=365)
     repos_with_coverage = set()
     for repo, items in all_items.items():
-        recent_prs = [i for i in items if i["is_pr"] and parse_date(i["created_at"])
-                      and parse_date(i["created_at"]) >= coverage_cutoff]
+        recent_prs = []
+        for i in items:
+            if not i["is_pr"]:
+                continue
+            cd = parse_date(i["created_at"])
+            if cd and cd >= coverage_cutoff:
+                recent_prs.append(i)
         if not recent_prs:
             continue
         checked = sum(1 for i in recent_prs if i.get("copilot_trailer") is not None)
@@ -1711,7 +1727,7 @@ def chart_copilot_adoption(all_items, output_dir):
     plt.close(fig)
     print(f"  {path}")
 
-    # --- Chart 2: CCA vs Copilot-Assisted split (stacked per repo) ---
+    # --- Chart 2: CCA vs Copilot-Assisted split (separate lines per repo) ---
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Copilot PRs by Type (4-week avg)", "PRs / week")
 

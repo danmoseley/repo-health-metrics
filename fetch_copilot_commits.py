@@ -38,13 +38,25 @@ TRAILER_RE = re.compile(
 
 
 def run_graphql(query):
-    """Execute a GraphQL query via gh CLI."""
+    """Execute a GraphQL query via gh CLI. Returns parsed JSON or None."""
     result = subprocess.run(
         ["gh", "api", "graphql", "-f", f"query={query}"],
         capture_output=True, encoding="utf-8", errors="replace"
     )
     if result.returncode != 0:
-        print(f"  GraphQL error: {result.stderr.strip()}", file=sys.stderr)
+        stderr_text = result.stderr.strip()
+        stdout_text = result.stdout.strip()
+        print(f"  GraphQL error: {stderr_text}", file=sys.stderr)
+        # Try to parse response body (may contain errors with rate limit info)
+        for payload in (stdout_text, stderr_text):
+            if not payload:
+                continue
+            try:
+                parsed = json.loads(payload)
+                if isinstance(parsed, dict):
+                    return parsed  # caller checks for "data" key
+            except json.JSONDecodeError:
+                continue
         return None
     try:
         return json.loads(result.stdout)
@@ -100,7 +112,12 @@ def main():
                 "INSERT INTO copilot_trailer_progress (repo, status) VALUES (?, 'in_progress')",
                 (repo,)
             )
-            conn.commit()
+        else:
+            conn.execute(
+                "UPDATE copilot_trailer_progress SET status='in_progress' WHERE repo=?",
+                (repo,)
+            )
+        conn.commit()
 
         # Get all recent PRs that haven't been checked yet — resume-safe since
         # we only query NULL rows and update them as we go
@@ -166,7 +183,6 @@ def main():
             repo_data = data["data"].get("repository")
             if not repo_data:
                 print(f"  Repository not found in response, skipping batch")
-                processed += len(batch)
                 continue
 
             batch_found = 0
