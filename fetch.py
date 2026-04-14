@@ -566,7 +566,9 @@ def hydrate_merged_by(conn, session, repo, request_delay):
     PRs where GitHub genuinely has no merged_by (e.g., very old PRs) are
     marked with merged_by='' so future --hydrate runs skip them.
 
-    Returns the number of PRs hydrated, or None on interruption.
+    Returns the number of PRs hydrated, 0 if there is nothing to hydrate,
+    or None if hydration stops early due to interruption or too many
+    request failures.
     """
     owner, name = repo.split("/")
 
@@ -742,7 +744,14 @@ def main():
 
     repos = args.repos or REPOS
     db_path = str(Path(args.db).resolve())
-    mode = "hydrate" if args.hydrate else ("update" if args.update else ("reset" if args.reset else "fetch"))
+    if args.hydrate:
+        mode = "hydrate"
+    elif args.update:
+        mode = "update"
+    elif args.reset:
+        mode = "reset"
+    else:
+        mode = "fetch"
 
     # Banner
     print("=" * 60)
