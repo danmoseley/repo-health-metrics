@@ -563,10 +563,14 @@ def hydrate_merged_by(conn, session, repo, request_delay):
     /pulls/{number} endpoint does. This function fetches each such PR
     individually to populate the field.
 
+    PRs where GitHub genuinely has no merged_by (e.g., very old PRs) are
+    marked with merged_by='' so future --hydrate runs skip them.
+
     Returns the number of PRs hydrated, or None on interruption.
     """
     owner, name = repo.split("/")
 
+    # Skip PRs previously checked where GitHub has no merged_by (marked as '')
     rows = conn.execute(
         "SELECT number FROM items "
         "WHERE repo = ? AND is_pull_request = 1 AND merged_at IS NOT NULL "
@@ -600,6 +604,10 @@ def hydrate_merged_by(conn, session, repo, request_delay):
             continue
 
         pr_data = resp.json()
+        merged_by_val = None
+        if pr_data.get("merged_by") and pr_data["merged_by"].get("login"):
+            merged_by_val = pr_data["merged_by"]["login"]
+
         row = parse_item(repo, pr_data, is_pr=True)
         for _attempt in range(5):
             try:
@@ -610,6 +618,23 @@ def hydrate_merged_by(conn, session, repo, request_delay):
                     time.sleep(2 ** _attempt)
                     continue
                 raise
+
+        # If GitHub truly has no merged_by, mark as '' so future --hydrate
+        # runs skip this PR instead of re-fetching it every time.
+        if merged_by_val is None:
+            for _attempt in range(5):
+                try:
+                    conn.execute(
+                        "UPDATE items SET merged_by = '' "
+                        "WHERE repo = ? AND number = ? AND merged_by IS NULL",
+                        (repo, number)
+                    )
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e) and _attempt < 4:
+                        time.sleep(2 ** _attempt)
+                        continue
+                    raise
         hydrated += 1
 
         if hydrated % 100 == 0:
@@ -710,8 +735,9 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.reset and args.update:
-        print("ERROR: --reset and --update are mutually exclusive.")
+    exclusive_flags = sum([args.reset, args.update, args.hydrate])
+    if exclusive_flags > 1:
+        print("ERROR: --reset, --update, and --hydrate are mutually exclusive.")
         sys.exit(1)
 
     repos = args.repos or REPOS
