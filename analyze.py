@@ -593,6 +593,14 @@ def add_insight_box(ax, lines, loc="upper center"):
                       alpha=0.92))
 
 
+def add_data_quality_warning(fig, text="⚠ aspire & roslyn data unreliable — merged_by not yet backfilled"):
+    """Add a semi-transparent watermark warning across the chart."""
+    fig.text(0.5, 0.5, text, transform=fig.transFigure,
+             fontsize=14, color="#cc0000", alpha=0.25,
+             ha="center", va="center", rotation=25,
+             fontweight="bold", zorder=100)
+
+
 def add_direction_arrow(ax, direction="up", x=0.06):
     """Add a 'Better' arrow in chart whitespace. direction: 'up' or 'down'."""
     if direction == "up":
@@ -1386,6 +1394,7 @@ def chart_contributor_diversity(all_items, output_dir):
         "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)?",
         "rust has broadest contributor base of all repos tracked",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
@@ -1457,6 +1466,7 @@ def chart_issue_community(all_items, output_dir):
         "runtime/maui declining — product maturation (fewer novel bugs)\n  and better self-service (docs, Stack Overflow, Discord)?",
         "Could also signal community disengagement if issues feel ignored?\n  — open backlog % rising (runtime 14% to 21% for 2022→2024 cohorts)\n  though initial turnaround has held steady",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "issue_community_comparison.png")
@@ -1519,6 +1529,7 @@ def chart_community_issue_volume(all_items, output_dir):
         "runtime volume declining since 2022 — but community share of new issues\n  is rising (~58% to 62%) as team files fewer issues",
         "vscode volume tracks product adoption — dwarfs all other repos",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_volume.png")
@@ -1587,6 +1598,7 @@ def chart_community_issue_share(all_items, output_dir):
         "runtime share rising (53% to 62%) even as volume drops\n  — team filing fewer issues, community holding steady",
         "maui near 90% — UI framework hits many device/platform edge cases;\n  community issues are ~86% bug reports, only 2% feature requests",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_share.png")
@@ -1654,6 +1666,7 @@ def chart_community_pr_share(all_items, output_dir):
         "runtime ~35% community — rising trend in recent years",
         "maui community share surged mid-2024 with Syncfusion partnership",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pr_share.png")
@@ -2201,6 +2214,7 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
         "aspire and maui recently declining — team bandwidth pressure?",
         "Lower than overall turnaround — team issues always get faster triage",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_responsiveness_comparison.png")
@@ -2283,6 +2297,7 @@ def chart_community_time_to_close(all_items, output_dir):
     add_insight_box(ax, [
         "roslyn has long-tail close times driven by enhancement requests",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
@@ -2371,6 +2386,7 @@ def chart_community_issue_age(all_items, output_dir):
     add_insight_box(ax, [
         "Shows staleness of unresolved community issue backlog",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_age.png")
@@ -2460,6 +2476,7 @@ def chart_community_pareto(all_items, output_dir):
         insights.append(f"vscode is most egalitarian (Gini={vscode[0][1]:.2f}) — broader but shallower community, perhaps fixing their own pet issue?")
     add_insight_box(ax, insights)
 
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pareto.png")
@@ -2555,6 +2572,7 @@ def chart_community_retention(all_items, output_dir):
         "rust retains best (~33-44%), possibly due to mentoring programs and automated tooling?",
         "vscode lowest (~20%) — large drive-by contributor pool, few repeat",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_retention.png")
@@ -2678,6 +2696,7 @@ def chart_community_merge_latency(all_items, output_dir):
         "Possible factors: longer wait for first review, more revision cycles, less familiarity with codebase?",
     ])
 
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_merge_latency.png")
@@ -2762,6 +2781,7 @@ def chart_gini_over_time(all_items, output_dir):
         "vscode stays low (~0.40) — most evenly distributed community",
         "runtime stable ~0.67 — concentrated but not worsening",
     ])
+    add_data_quality_warning(fig)
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_gini.png")
