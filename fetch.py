@@ -84,7 +84,7 @@ def init_db(db_path):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA busy_timeout=60000")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS items (
             repo TEXT NOT NULL,
@@ -555,6 +555,117 @@ def update_repo(conn, session, repo, request_delay):
     return issues_updated, prs_updated
 
 
+def hydrate_merged_by(conn, session, repo, request_delay):
+    """
+    Backfill merged_by for merged PRs that have NULL merged_by.
+
+    The /pulls list endpoint doesn't return merged_by — only the individual
+    /pulls/{number} endpoint does. This function fetches each such PR
+    individually to populate the field.
+
+    PRs where GitHub genuinely has no merged_by (e.g., very old PRs) are
+    marked with merged_by='' so future --hydrate runs skip them.
+
+    Returns the number of PRs hydrated, 0 if there is nothing to hydrate,
+    or None if hydration stops early due to interruption or too many
+    request failures.
+    """
+    owner, name = repo.split("/")
+
+    # Skip PRs previously checked where GitHub has no merged_by (marked as '')
+    rows = conn.execute(
+        "SELECT number FROM items "
+        "WHERE repo = ? AND is_pull_request = 1 AND merged_at IS NOT NULL "
+        "AND merged_by IS NULL ORDER BY number",
+        (repo,)
+    ).fetchall()
+
+    total = len(rows)
+    if total == 0:
+        print(f"  No merged PRs with NULL merged_by — nothing to hydrate")
+        return 0
+
+    print(f"  {total:,} merged PRs need merged_by hydration")
+    hydrated = 0
+    failed = 0
+
+    for i, (number,) in enumerate(rows):
+        if _shutdown_requested:
+            print(f"  Interrupted after hydrating {hydrated}/{total}")
+            conn.commit()
+            return None
+
+        url = f"https://api.github.com/repos/{owner}/{name}/pulls/{number}"
+        resp = fetch_page(session, url, {})
+        if resp is None:
+            failed += 1
+            if failed > 20:
+                print(f"  Too many failures ({failed}), stopping hydration")
+                conn.commit()
+                return None
+            continue
+
+        pr_data = resp.json()
+        merged_by_val = None
+        if pr_data.get("merged_by") and pr_data["merged_by"].get("login"):
+            merged_by_val = pr_data["merged_by"]["login"]
+
+        row = parse_item(repo, pr_data, is_pr=True)
+        for _attempt in range(5):
+            try:
+                conn.execute(UPSERT_SQL, row)
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and _attempt < 4:
+                    time.sleep(2 ** _attempt)
+                    continue
+                raise
+
+        # If GitHub truly has no merged_by, mark as '' so future --hydrate
+        # runs skip this PR instead of re-fetching it every time.
+        if merged_by_val is None:
+            for _attempt in range(5):
+                try:
+                    conn.execute(
+                        "UPDATE items SET merged_by = '' "
+                        "WHERE repo = ? AND number = ? AND merged_by IS NULL",
+                        (repo, number)
+                    )
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e) and _attempt < 4:
+                        time.sleep(2 ** _attempt)
+                        continue
+                    raise
+        hydrated += 1
+
+        if hydrated % 100 == 0:
+            for _attempt in range(5):
+                try:
+                    conn.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e) and _attempt < 4:
+                        time.sleep(2 ** _attempt)
+                        continue
+                    raise
+            ts = datetime.now().strftime("%H:%M:%S")
+            remaining = total - i - 1
+            rate = hydrated / max((time.time() - hydrate_merged_by._start_time), 1)
+            eta_min = remaining / max(rate, 0.01) / 60
+            print(f"  [{ts}] hydrated {hydrated}/{total} "
+                  f"({failed} failed, ~{eta_min:.0f} min remaining)")
+
+        time.sleep(request_delay)
+
+    conn.commit()
+    if failed:
+        print(f"  Hydrated {hydrated}/{total} ({failed} failed)")
+    else:
+        print(f"  Hydrated {hydrated}/{total}")
+    return hydrated
+
+
 def print_rate_limit(session):
     """Print current rate limit status."""
     try:
@@ -620,15 +731,27 @@ def main():
         "--update", action="store_true",
         help="Incremental update: fetch only items changed since last sync (~5-10 min)"
     )
+    parser.add_argument(
+        "--hydrate", action="store_true",
+        help="Backfill merged_by for merged PRs (fetches individual PR details)"
+    )
     args = parser.parse_args()
 
-    if args.reset and args.update:
-        print("ERROR: --reset and --update are mutually exclusive.")
+    exclusive_flags = sum([args.reset, args.update, args.hydrate])
+    if exclusive_flags > 1:
+        print("ERROR: --reset, --update, and --hydrate are mutually exclusive.")
         sys.exit(1)
 
     repos = args.repos or REPOS
     db_path = str(Path(args.db).resolve())
-    mode = "update" if args.update else ("reset" if args.reset else "fetch")
+    if args.hydrate:
+        mode = "hydrate"
+    elif args.update:
+        mode = "update"
+    elif args.reset:
+        mode = "reset"
+    else:
+        mode = "fetch"
 
     # Banner
     print("=" * 60)
@@ -693,7 +816,20 @@ def main():
     start_time = time.time()
     sync_started_at = datetime.now(timezone.utc).isoformat()
 
-    if args.update:
+    if args.hydrate:
+        # --- Hydrate merged_by mode ---
+        hydrate_merged_by._start_time = time.time()
+        for i, repo in enumerate(repos):
+            if _shutdown_requested:
+                break
+
+            print(f"\n{'='*60}")
+            print(f"[{i+1}/{len(repos)}] {repo} (hydrate merged_by)")
+            print(f"{'='*60}")
+
+            hydrate_merged_by(conn, session, repo, args.delay)
+
+    elif args.update:
         # --- Incremental update mode ---
         any_failed = False
         for i, repo in enumerate(repos):
