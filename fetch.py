@@ -126,6 +126,11 @@ def init_db(db_path):
         conn.execute("ALTER TABLE fetch_progress ADD COLUMN sync_started_at TEXT")
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Migration: add next_url for Link-header pagination resume
+    try:
+        conn.execute("ALTER TABLE fetch_progress ADD COLUMN next_url TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
 
     # Set schema version on fresh DB (user_version defaults to 0)
@@ -230,18 +235,20 @@ def fetch_items(conn, session, repo, item_type, request_delay):
     """
     Fetch all issues or PRs for a repo with checkpoint/resume.
 
+    Uses Link-header (cursor-based) pagination to avoid GitHub's 422 error
+    that occurs with page-based pagination beyond ~10K results.
+
     item_type: 'issue' or 'pr'
     """
     owner, name = repo.split("/")
 
-    if item_type == "pr":
-        url = f"https://api.github.com/repos/{owner}/{name}/pulls"
-    else:
-        url = f"https://api.github.com/repos/{owner}/{name}/issues"
+    base_url = (f"https://api.github.com/repos/{owner}/{name}/pulls"
+                if item_type == "pr" else
+                f"https://api.github.com/repos/{owner}/{name}/issues")
 
     # Check for existing progress
     row = conn.execute(
-        "SELECT last_page, items_fetched, status FROM fetch_progress "
+        "SELECT last_page, items_fetched, status, next_url FROM fetch_progress "
         "WHERE repo = ? AND item_type = ?",
         (repo, item_type)
     ).fetchone()
@@ -250,25 +257,32 @@ def fetch_items(conn, session, repo, item_type, request_delay):
         print(f"  Already complete ({row[1]} items). Skipping.")
         return row[1]
 
-    start_page = (row[0] + 1) if row else 1
+    page = (row[0] + 1) if row else 1
     items_fetched = row[1] if row else 0
+    # Resume from saved Link URL if available, otherwise start fresh
+    saved_next_url = row[3] if row else None
 
-    if start_page > 1:
-        print(f"  Resuming from page {start_page} ({items_fetched} items so far)")
-
-    page = start_page
-    empty_streak = 0
-
-    while not _shutdown_requested:
-        params = {
+    if saved_next_url:
+        next_url = saved_next_url
+        next_params = {}  # URL already contains all params
+        print(f"  Resuming from page {page} ({items_fetched} items so far) via saved cursor")
+    else:
+        next_url = base_url
+        next_params = {
             "state": "all",
             "per_page": 100,
-            "page": page,
             "sort": "created",
             "direction": "asc",
         }
+        if page > 1:
+            # Fallback: if we have a page but no URL (old checkpoint), use page param
+            next_params["page"] = page
+            print(f"  Resuming from page {page} ({items_fetched} items so far)")
 
-        resp = fetch_page(session, url, params)
+    empty_streak = 0
+
+    while not _shutdown_requested:
+        resp = fetch_page(session, next_url, next_params)
         if resp is None:
             # Save checkpoint on failure or shutdown
             save_checkpoint(conn, repo, item_type, page - 1, items_fetched,
@@ -302,19 +316,30 @@ def fetch_items(conn, session, repo, item_type, request_delay):
             conn.executemany(UPSERT_SQL, batch)
             items_fetched += len(batch)
 
-        # Checkpoint every page
-        save_checkpoint(conn, repo, item_type, page, items_fetched, "in_progress")
+        # Follow Link header for next page (cursor-based pagination)
+        link_header = resp.headers.get("Link", "")
+        link_next = None
+        for part in link_header.split(","):
+            if 'rel="next"' in part:
+                link_next = part.split(";")[0].strip().strip("<>")
+                break
+
+        # Checkpoint every page (save the next Link URL for resume)
+        save_checkpoint(conn, repo, item_type, page, items_fetched, "in_progress",
+                        next_url=link_next)
 
         # Progress log
-        if page % 20 == 0 or page == start_page:
+        if page % 20 == 0 or page == 1:
             ts = datetime.now().strftime("%H:%M:%S")
             suffix = f" (skipped {skipped_prs} PRs)" if skipped_prs else ""
             print(f"  [{ts}] page {page}: {items_fetched} {item_type}s{suffix}")
 
         # End of data?
-        if len(data) < 100:
+        if not link_next or len(data) < 100:
             break
 
+        next_url = link_next
+        next_params = {}  # Link URL already contains all params
         page += 1
         time.sleep(request_delay)
 
@@ -327,14 +352,15 @@ def fetch_items(conn, session, repo, item_type, request_delay):
     return items_fetched
 
 
-def save_checkpoint(conn, repo, item_type, page, items_fetched, status):
+def save_checkpoint(conn, repo, item_type, page, items_fetched, status,
+                    next_url=None):
     """Persist progress to database."""
     conn.execute(
         "INSERT OR REPLACE INTO fetch_progress "
-        "(repo, item_type, last_page, items_fetched, total_expected, updated_at, status) "
-        "VALUES (?, ?, ?, ?, NULL, ?, ?)",
+        "(repo, item_type, last_page, items_fetched, total_expected, updated_at, status, next_url) "
+        "VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
         (repo, item_type, page, items_fetched,
-         datetime.now(timezone.utc).isoformat(), status)
+         datetime.now(timezone.utc).isoformat(), status, next_url)
     )
     conn.commit()
 
