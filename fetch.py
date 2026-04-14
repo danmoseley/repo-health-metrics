@@ -6,7 +6,9 @@ Fetches all issues and PRs for specified repos, stores in SQLite.
 Supports checkpoint/resume, rate limit handling, and unattended operation.
 
 Usage:
-    python fetch.py                          # Fetch all repos now
+    python fetch.py                          # Resume/complete initial fetch
+    python fetch.py --update                 # Incremental update (~5-10 min)
+    python fetch.py --reset                  # Full re-fetch from scratch (hours)
     python fetch.py --wait 14400             # Wait 4 hours then fetch
     python fetch.py --repos dotnet/runtime   # Fetch one repo only
     python fetch.py --db mydata.db           # Custom DB path
@@ -19,8 +21,12 @@ import json
 import os
 import sys
 import signal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Schema version — bump when DB schema changes in incompatible ways.
+# --update refuses to run against a different version; use --reset to rebuild.
+SCHEMA_VERSION = 1
 
 REPOS = [
     "golang/go",          # smallest, good for pipeline validation
@@ -102,6 +108,7 @@ def init_db(db_path):
             total_expected INTEGER,
             updated_at TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
+            sync_started_at TEXT,
             PRIMARY KEY (repo, item_type)
         );
 
@@ -114,7 +121,19 @@ def init_db(db_path):
             conn.execute(f"ALTER TABLE items ADD COLUMN {col} TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
+    # Migration: add sync_started_at to fetch_progress
+    try:
+        conn.execute("ALTER TABLE fetch_progress ADD COLUMN sync_started_at TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
+
+    # Set schema version on fresh DB (user_version defaults to 0)
+    current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current_version == 0:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+
     return conn
 
 
@@ -277,41 +296,10 @@ def fetch_items(conn, session, repo, item_type, request_delay):
                 skipped_prs += 1
                 continue
 
-            is_pr = 1 if item_type == "pr" else 0
-            labels = json.dumps([lb["name"] for lb in item.get("labels", [])])
-
-            # Extract author and merged_by (nested objects)
-            author = None
-            user = item.get("user")
-            if user and isinstance(user, dict):
-                author = user.get("login")
-
-            merged_by_login = None
-            mb = item.get("merged_by")
-            if mb and isinstance(mb, dict):
-                merged_by_login = mb.get("login")
-
-            batch.append((
-                repo,
-                item["number"],
-                item.get("created_at"),
-                item.get("closed_at"),
-                (item.get("state") or "").upper(),
-                is_pr,
-                item.get("merged_at"),  # only present from /pulls
-                labels,
-                author,
-                merged_by_login,
-            ))
+            batch.append(parse_item(repo, item, is_pr=(item_type == "pr")))
 
         if batch:
-            conn.executemany(
-                "INSERT OR REPLACE INTO items "
-                "(repo, number, created_at, closed_at, state, is_pull_request, "
-                "merged_at, labels, author, merged_by) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                batch
-            )
+            conn.executemany(UPSERT_SQL, batch)
             items_fetched += len(batch)
 
         # Checkpoint every page
@@ -349,6 +337,196 @@ def save_checkpoint(conn, repo, item_type, page, items_fetched, status):
          datetime.now(timezone.utc).isoformat(), status)
     )
     conn.commit()
+
+
+# --- Upsert helper (shared by full fetch and update) ---
+
+UPSERT_SQL = (
+    "INSERT INTO items "
+    "(repo, number, created_at, closed_at, state, is_pull_request, "
+    "merged_at, labels, author, merged_by) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+    "ON CONFLICT(repo, number) DO UPDATE SET "
+    "  created_at      = COALESCE(items.created_at, excluded.created_at), "
+    "  is_pull_request = MAX(items.is_pull_request, excluded.is_pull_request), "
+    "  closed_at       = excluded.closed_at, "
+    "  state           = excluded.state, "
+    "  merged_at       = COALESCE(excluded.merged_at, items.merged_at), "
+    "  labels          = excluded.labels, "
+    "  author          = COALESCE(items.author, excluded.author), "
+    "  merged_by       = COALESCE(excluded.merged_by, items.merged_by)"
+)
+
+
+def parse_item(repo, item, is_pr):
+    """Parse a GitHub API item into an upsert tuple."""
+    labels = json.dumps([lb["name"] for lb in item.get("labels", [])])
+    author = None
+    user = item.get("user")
+    if user and isinstance(user, dict):
+        author = user.get("login")
+    merged_by_login = None
+    mb = item.get("merged_by")
+    if mb and isinstance(mb, dict):
+        merged_by_login = mb.get("login")
+    return (
+        repo,
+        item["number"],
+        item.get("created_at"),
+        item.get("closed_at"),
+        (item.get("state") or "").upper(),
+        1 if is_pr else 0,
+        item.get("merged_at"),
+        labels,
+        author,
+        merged_by_login,
+    )
+
+
+def update_repo(conn, session, repo, request_delay):
+    """
+    Incremental update for a completed repo using /issues?since=.
+
+    Uses the issues endpoint (which returns both issues and PRs) filtered by
+    updated_at >= watermark. PRs discovered this way are hydrated individually
+    via /pulls/{number} to get merged_at and merged_by.
+
+    Returns (issues_updated, prs_updated) or None on failure.
+    """
+    owner, name = repo.split("/")
+
+    # Get the oldest watermark across both issue and pr progress rows.
+    # Both must be "complete" for --update to apply.
+    rows = conn.execute(
+        "SELECT item_type, status, sync_started_at FROM fetch_progress WHERE repo = ?",
+        (repo,)
+    ).fetchall()
+
+    status_map = {r[0]: (r[1], r[2]) for r in rows}
+    if not all(status_map.get(t, (None,))[0] == "complete" for t in ("issue", "pr")):
+        print(f"  Not fully fetched yet — skipping update (run without --update first)")
+        return None
+
+    # Use oldest watermark minus 2-day overlap for safety
+    watermarks = [s for _, (_, s) in status_map.items() if s]
+    if not watermarks:
+        print(f"  No watermark found — run full fetch first (no --update)")
+        return None
+
+    oldest_watermark = min(watermarks)
+    since_dt = datetime.fromisoformat(oldest_watermark.replace("Z", "+00:00")) - timedelta(days=2)
+    since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"  Watermark: {oldest_watermark}")
+    print(f"  Fetching changes since: {since_str} (2-day overlap)")
+
+    # Fetch all changed items via /issues?since=
+    # Use Link header pagination (not page numbers) to handle large result sets.
+    # GitHub returns 422 for page-based pagination beyond ~10K results.
+    next_url = f"https://api.github.com/repos/{owner}/{name}/issues"
+    next_params = {
+        "state": "all",
+        "per_page": 100,
+        "sort": "updated",
+        "direction": "asc",
+        "since": since_str,
+    }
+    page = 0
+    issues_updated = 0
+    prs_to_hydrate = set()
+
+    while not _shutdown_requested:
+        resp = fetch_page(session, next_url, next_params)
+        if resp is None:
+            return None
+
+        data = resp.json()
+        if not data:
+            break
+
+        page += 1
+        batch = []
+        for item in data:
+            is_pr = "pull_request" in item
+            if is_pr:
+                # Check if we need to hydrate this PR
+                number = item["number"]
+                existing = conn.execute(
+                    "SELECT state, merged_at FROM items WHERE repo = ? AND number = ?",
+                    (repo, number)
+                ).fetchone()
+                new_state = (item.get("state") or "").upper()
+                needs_hydration = (
+                    existing is None  # new PR
+                    or existing[0] != new_state  # state changed
+                    or (new_state == "CLOSED" and not existing[1])  # closed but no merged_at
+                )
+                if needs_hydration:
+                    prs_to_hydrate.add(number)
+                else:
+                    # Still upsert the non-PR-specific fields (labels, etc.)
+                    batch.append(parse_item(repo, item, is_pr=True))
+            else:
+                batch.append(parse_item(repo, item, is_pr=False))
+                issues_updated += 1
+
+        if batch:
+            conn.executemany(UPSERT_SQL, batch)
+            conn.commit()
+
+        if page == 1 or page % 10 == 0:
+            ts = datetime.now().strftime("%H:%M:%S")
+            print(f"  [{ts}] page {page}: {issues_updated} issues, "
+                  f"{len(prs_to_hydrate)} PRs queued for hydration")
+
+        # Follow Link header for next page (cursor-based pagination)
+        link_header = resp.headers.get("Link", "")
+        next_link = None
+        for part in link_header.split(","):
+            if 'rel="next"' in part:
+                next_link = part.split(";")[0].strip().strip("<>")
+                break
+
+        if not next_link or len(data) < 100:
+            break
+
+        next_url = next_link
+        next_params = {}  # URL already contains all params
+        time.sleep(request_delay)
+
+    if _shutdown_requested:
+        return None
+
+    # Hydrate PRs that need merged_at/merged_by
+    prs_updated = 0
+    prs_to_hydrate = sorted(prs_to_hydrate)
+    if prs_to_hydrate:
+        print(f"  Hydrating {len(prs_to_hydrate)} PRs...")
+        for i, number in enumerate(prs_to_hydrate):
+            if _shutdown_requested:
+                return None
+
+            pr_url = f"https://api.github.com/repos/{owner}/{name}/pulls/{number}"
+            resp = fetch_page(session, pr_url, {})
+            if resp is None:
+                print(f"  WARNING: Failed to hydrate PR #{number}, skipping")
+                continue
+
+            pr_data = resp.json()
+            row = parse_item(repo, pr_data, is_pr=True)
+            conn.execute(UPSERT_SQL, row)
+            prs_updated += 1
+
+            if (i + 1) % 50 == 0:
+                conn.commit()
+                ts = datetime.now().strftime("%H:%M:%S")
+                print(f"  [{ts}] hydrated {i + 1}/{len(prs_to_hydrate)} PRs")
+
+            time.sleep(request_delay)
+
+        conn.commit()
+
+    print(f"  Updated: {issues_updated} issues, {prs_updated} PRs")
+    return issues_updated, prs_updated
 
 
 def print_rate_limit(session):
@@ -412,15 +590,25 @@ def main():
         "--reset", action="store_true",
         help="Clear all progress checkpoints and re-fetch from scratch"
     )
+    parser.add_argument(
+        "--update", action="store_true",
+        help="Incremental update: fetch only items changed since last sync (~5-10 min)"
+    )
     args = parser.parse_args()
+
+    if args.reset and args.update:
+        print("ERROR: --reset and --update are mutually exclusive.")
+        sys.exit(1)
 
     repos = args.repos or REPOS
     db_path = str(Path(args.db).resolve())
+    mode = "update" if args.update else ("reset" if args.reset else "fetch")
 
     # Banner
     print("=" * 60)
     print("  GitHub Repo Health Data Fetcher")
     print("=" * 60)
+    print(f"  Mode     : {mode}")
     print(f"  Database : {db_path}")
     print(f"  Repos    : {', '.join(repos)}")
     print(f"  Delay    : {args.delay}s between requests")
@@ -461,33 +649,95 @@ def main():
     # Init DB
     conn = init_db(db_path)
 
+    # Schema version check (for --update only)
+    if args.update:
+        db_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if db_version != SCHEMA_VERSION:
+            print(f"ERROR: DB schema version {db_version} != expected {SCHEMA_VERSION}.")
+            print(f"  Run with --reset to rebuild the database.")
+            conn.close()
+            sys.exit(1)
+
     if args.reset:
         print("Resetting all progress checkpoints...")
         conn.execute("DELETE FROM fetch_progress")
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
 
     start_time = time.time()
+    sync_started_at = datetime.now(timezone.utc).isoformat()
 
-    # Fetch each repo
-    for i, repo in enumerate(repos):
-        if _shutdown_requested:
-            break
+    if args.update:
+        # --- Incremental update mode ---
+        any_failed = False
+        for i, repo in enumerate(repos):
+            if _shutdown_requested:
+                any_failed = True
+                break
 
-        print(f"\n{'='*60}")
-        print(f"[{i+1}/{len(repos)}] {repo}")
-        print(f"{'='*60}")
+            print(f"\n{'='*60}")
+            print(f"[{i+1}/{len(repos)}] {repo} (update)")
+            print(f"{'='*60}")
 
-        print(f"\n  --- Pull Requests ---")
-        pr_count = fetch_items(conn, session, repo, "pr", args.delay)
-        if _shutdown_requested:
-            break
+            result = update_repo(conn, session, repo, args.delay)
+            if result is None:
+                if _shutdown_requested:
+                    any_failed = True
+                    break
+                # Distinguish "skipped (not complete)" from "failed"
+                # update_repo prints the reason; either way don't advance watermark
+                any_failed = True
 
-        print(f"\n  --- Issues ---")
-        issue_count = fetch_items(conn, session, repo, "issue", args.delay)
-        if _shutdown_requested:
-            break
+        # Only persist watermark if no repos failed/were interrupted
+        if not any_failed:
+            for repo in repos:
+                for item_type in ("issue", "pr"):
+                    conn.execute(
+                        "UPDATE fetch_progress SET sync_started_at = ? "
+                        "WHERE repo = ? AND item_type = ?",
+                        (sync_started_at, repo, item_type)
+                    )
+            conn.commit()
+            print(f"\n  Watermark advanced to {sync_started_at}")
+        else:
+            print(f"\n  Watermark NOT advanced (incomplete or failed run)")
+    else:
+        # --- Full fetch mode ---
+        for i, repo in enumerate(repos):
+            if _shutdown_requested:
+                break
 
-        print(f"\n  Repo total: {issue_count:,} issues + {pr_count:,} PRs")
+            print(f"\n{'='*60}")
+            print(f"[{i+1}/{len(repos)}] {repo}")
+            print(f"{'='*60}")
+
+            print(f"\n  --- Pull Requests ---")
+            pr_count = fetch_items(conn, session, repo, "pr", args.delay)
+            if _shutdown_requested:
+                break
+
+            print(f"\n  --- Issues ---")
+            issue_count = fetch_items(conn, session, repo, "issue", args.delay)
+            if _shutdown_requested:
+                break
+
+            print(f"\n  Repo total: {issue_count:,} issues + {pr_count:,} PRs")
+
+        # Set watermark for completed repos (full fetch)
+        if not _shutdown_requested:
+            for repo in repos:
+                for item_type in ("issue", "pr"):
+                    row = conn.execute(
+                        "SELECT status FROM fetch_progress WHERE repo = ? AND item_type = ?",
+                        (repo, item_type)
+                    ).fetchone()
+                    if row and row[0] == "complete":
+                        conn.execute(
+                            "UPDATE fetch_progress SET sync_started_at = ? "
+                            "WHERE repo = ? AND item_type = ?",
+                            (sync_started_at, repo, item_type)
+                        )
+            conn.commit()
 
     # Summary
     elapsed = time.time() - start_time
