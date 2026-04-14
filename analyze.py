@@ -533,16 +533,38 @@ def label_line_ends(ax, lines_info):
 def setup_axes(ax, title, ylabel):
     ax.set_title(title, fontsize=13, fontweight="bold", pad=10)
     ax.set_ylabel(ylabel, fontsize=10)
-    # Major ticks on Jan 1 (grid lines), minor ticks at mid-year (labels)
+    # Major ticks on Jan 1 (year labels + grid lines), minor ticks quarterly
     ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_major_formatter(mdates.DateFormatter(""))  # no label on Jan 1 ticks
-    ax.xaxis.set_minor_locator(mdates.YearLocator(month=7))  # mid-year
-    ax.xaxis.set_minor_formatter(mdates.DateFormatter("%Y"))
-    ax.tick_params(axis="x", which="minor", length=0)  # no tick mark for labels
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
     ax.yaxis.set_major_formatter(FuncFormatter(thousands_formatter))
     ax.grid(True, alpha=0.3, which="major")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+
+def _pad_date_xlim(fig):
+    """Snap x-axis limits to Jan 1 boundaries so every year in the data range
+    gets a visible tick label. Uses ax.dataLim (actual data extent) to avoid
+    being fooled by matplotlib's auto-margin overshooting past a Jan 1."""
+    for ax in fig.get_axes():
+        # Only adjust axes that use the year-label scheme from setup_axes
+        major_loc = ax.xaxis.get_major_locator()
+        if not isinstance(major_loc, mdates.YearLocator):
+            continue
+        # Use actual data extent, not the margin-inflated xlim
+        data_lo = ax.dataLim.x0
+        data_hi = ax.dataLim.x1
+        lo_date = mdates.num2date(data_lo).replace(tzinfo=None)
+        hi_date = mdates.num2date(data_hi).replace(tzinfo=None)
+        jan1_first = datetime(lo_date.year, 1, 1)
+        # Next Jan 1 at or after the last data point
+        if hi_date.month == 1 and hi_date.day == 1:
+            jan1_after_last = hi_date
+        else:
+            jan1_after_last = datetime(hi_date.year + 1, 1, 1)
+        ax.set_xlim(mdates.date2num(jan1_first), mdates.date2num(jan1_after_last))
 
 
 def add_insight_box(ax, lines, loc="upper center"):
@@ -669,6 +691,7 @@ def chart_open_issues_comparison(all_series, output_dir):
         "vscode triages ~3K issues every December (end-of-year housekeeping)\n  but the upward trend still dominates",
         "go's backlog is flattest — open/close rates stay balanced over time",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_comparison.png")
     fig.savefig(path, dpi=150)
@@ -702,6 +725,7 @@ def chart_open_prs_comparison(all_series, output_dir):
         "vscode's 3x jump in 2022 was a workflow change to smaller PRs,\n  not team growth — same ~175 authors making 3x more PRs",
         "rust's high open PR count reflects its large contributor base (5,000+ community authors)\n  and rigorous multi-stage review process",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_comparison.png")
     fig.savefig(path, dpi=150)
@@ -761,6 +785,7 @@ def chart_net_flow_comparison(all_series, output_dir):
     ]
     add_insight_box(ax, lines)
     add_direction_arrow(ax, "down")
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "net_issue_flow_comparison.png")
     fig.savefig(path, dpi=150)
@@ -797,6 +822,7 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
         "vscode 3x jump mid-2022 was workflow shift to smaller PRs,\n  not a staffing increase (same ~175 authors)",
         "rust's steady ~160/wk — high volume driven by 1,000+ active contributors;\n  bors automates the merge step but review/iteration is still human",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
     fig.savefig(path, dpi=150)
@@ -918,6 +944,7 @@ def chart_per_repo_dashboard(repo, series, output_dir):
             else:
                 _dashboard_insight(ax, "Merge rate steady — sustainable pace")
 
+    _pad_date_xlim(fig)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     safe_name = repo.replace("/", "_")
     path = os.path.join(output_dir, f"dashboard_{safe_name}.png")
@@ -986,6 +1013,7 @@ def chart_sustainability_score(all_series, output_dir):
         "Most repos hover near 100% — roughly keeping pace",
     ])
     add_direction_arrow(ax, "up")
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "sustainability_score.png")
     fig.savefig(path, dpi=150)
@@ -1021,6 +1049,7 @@ def chart_time_to_merge(all_ttm, output_dir):
         "runtime p75 ~6d, roslyn p75 ~3d — among the fastest",
         "maui p75 rose sharply mid-2024 when Syncfusion partnership ramped up",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "time_to_merge_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1101,6 +1130,7 @@ def chart_open_pr_age(all_items, output_dir):
         "vscode age dropping recently — team actively closing old PRs",
         "maui's high age reflects long-lived Syncfusion/partner PRs in queue",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "open_pr_age.png")
     fig.savefig(path, dpi=150)
@@ -1136,6 +1166,7 @@ def chart_active_maintainers(all_maint, output_dir):
         "vscode steadily growing — largest maintainer pool by far",
         "maui volatile — small team (6-11 people), sensitive to individual changes",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "active_maintainers_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1171,6 +1202,7 @@ def chart_prs_per_maintainer(all_maint, output_dir):
         "maui: 2-3 people merge nearly all PRs (rmarinho ~50%)",
         "vscode maintainers handle ~2x the PR volume of dotnet repos",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "prs_per_maintainer_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1246,6 +1278,7 @@ def chart_open_issues_per_maintainer(all_series, all_maint, output_dir):
         "runtime burden growing — maintainer count dropped while issues held steady",
         "vscode's large team keeps per-person load relatively flat",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "open_issues_per_maintainer.png")
     fig.savefig(path, dpi=150)
@@ -1293,6 +1326,7 @@ def chart_open_prs_per_maintainer(all_series, all_maint, output_dir):
         "maui's small merge team (2-3 people) drives high per-person load",
         "roslyn rising sharply — 630+ open PRs (68% over 1yr old),\n  mostly maintainer-authored PRs going stale",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "open_prs_per_maintainer.png")
     fig.savefig(path, dpi=150)
@@ -1352,6 +1386,7 @@ def chart_contributor_diversity(all_items, output_dir):
         "vscode jumped in 2025 — likely Copilot-driven (total PRs also surged)?",
         "rust has broadest contributor base of all repos tracked",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "contributor_diversity_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1422,6 +1457,7 @@ def chart_issue_community(all_items, output_dir):
         "runtime/maui declining — product maturation (fewer novel bugs)\n  and better self-service (docs, Stack Overflow, Discord)?",
         "Could also signal community disengagement if issues feel ignored?\n  — open backlog % rising (runtime 14% to 21% for 2022→2024 cohorts)\n  though initial turnaround has held steady",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "issue_community_comparison.png")
     fig.savefig(path, dpi=150)
@@ -1483,6 +1519,7 @@ def chart_community_issue_volume(all_items, output_dir):
         "runtime volume declining since 2022 — but community share of new issues\n  is rising (~58% to 62%) as team files fewer issues",
         "vscode volume tracks product adoption — dwarfs all other repos",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_volume.png")
     fig.savefig(path, dpi=150)
@@ -1550,6 +1587,7 @@ def chart_community_issue_share(all_items, output_dir):
         "runtime share rising (53% to 62%) even as volume drops\n  — team filing fewer issues, community holding steady",
         "maui near 90% — UI framework hits many device/platform edge cases;\n  community issues are ~86% bug reports, only 2% feature requests",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_share.png")
     fig.savefig(path, dpi=150)
@@ -1616,6 +1654,7 @@ def chart_community_pr_share(all_items, output_dir):
         "runtime ~35% community — rising trend in recent years",
         "maui community share surged mid-2024 with Syncfusion partnership",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pr_share.png")
     fig.savefig(path, dpi=150)
@@ -1744,6 +1783,7 @@ def chart_copilot_adoption(all_items, output_dir):
         "Excludes PRs where trailer status is unknown (not yet checked)",
         "First-commit-only heuristic — may undercount Copilot usage",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_adoption.png")
     fig.savefig(path, dpi=150)
@@ -1816,6 +1856,7 @@ def chart_copilot_adoption(all_items, output_dir):
         "Assisted = human author with Co-authored-by: Copilot trailer (dashed)",
         "Shows whether growth comes from CCA, local Copilot use, or both",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_by_type.png")
     fig.savefig(path, dpi=150)
@@ -1914,6 +1955,7 @@ def chart_copilot_merge_success(all_items, output_dir):
         "Copilot merge rate increased over the period",
         "Trailer is a lower-bound proxy — not all Copilot use leaves a trailer",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_merge_success.png")
     fig.savefig(path, dpi=150)
@@ -2016,6 +2058,7 @@ def chart_copilot_time_to_merge(all_items, output_dir):
         "TTM broadly similar — the difference is merge rate, not speed",
         "Shaded region = 50th to 75th percentile spread",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_time_to_merge.png")
     fig.savefig(path, dpi=150)
@@ -2084,6 +2127,7 @@ def chart_issue_close_rate(all_series, output_dir):
         ax.annotate(f"Note: {cutoff_names} shown from 2020 (pre-merge close dates unreliable)",
                     xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
                     color="#888888", style="italic")
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "issue_responsiveness_comparison.png")
     fig.savefig(path, dpi=150)
@@ -2157,6 +2201,7 @@ def chart_community_responsiveness(all_items, all_maint, output_dir):
         "aspire and maui recently declining — team bandwidth pressure?",
         "Lower than overall turnaround — team issues always get faster triage",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_responsiveness_comparison.png")
     fig.savefig(path, dpi=150)
@@ -2238,6 +2283,7 @@ def chart_community_time_to_close(all_items, output_dir):
     add_insight_box(ax, [
         "roslyn has long-tail close times driven by enhancement requests",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_time_to_close.png")
     fig.savefig(path, dpi=150)
@@ -2325,6 +2371,7 @@ def chart_community_issue_age(all_items, output_dir):
     add_insight_box(ax, [
         "Shows staleness of unresolved community issue backlog",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_issue_age.png")
     fig.savefig(path, dpi=150)
@@ -2413,6 +2460,7 @@ def chart_community_pareto(all_items, output_dir):
         insights.append(f"vscode is most egalitarian (Gini={vscode[0][1]:.2f}) — broader but shallower community, perhaps fixing their own pet issue?")
     add_insight_box(ax, insights)
 
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_pareto.png")
     fig.savefig(path, dpi=150)
@@ -2507,6 +2555,7 @@ def chart_community_retention(all_items, output_dir):
         "rust retains best (~33-44%), possibly due to mentoring programs and automated tooling?",
         "vscode lowest (~20%) — large drive-by contributor pool, few repeat",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_retention.png")
     fig.savefig(path, dpi=150)
@@ -2629,6 +2678,7 @@ def chart_community_merge_latency(all_items, output_dir):
         "Possible factors: longer wait for first review, more revision cycles, less familiarity with codebase?",
     ])
 
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_merge_latency.png")
     fig.savefig(path, dpi=150)
@@ -2712,6 +2762,7 @@ def chart_gini_over_time(all_items, output_dir):
         "vscode stays low (~0.40) — most evenly distributed community",
         "runtime stable ~0.67 — concentrated but not worsening",
     ])
+    _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "community_gini.png")
     fig.savefig(path, dpi=150)
