@@ -32,9 +32,11 @@ REPOS = [
     "golang/go",          # smallest, good for pipeline validation
     "microsoft/aspire",   # aspire moved from dotnet/ to microsoft/ ~Mar 2026
     "dotnet/maui",
+    "microsoft/pyright",
     "dotnet/roslyn",
     "dotnet/runtime",
     "rust-lang/rust",
+    "microsoft/vscode-python",
     "microsoft/vscode",   # largest, fetch last
 ]
 
