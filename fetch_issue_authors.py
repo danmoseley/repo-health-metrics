@@ -15,15 +15,6 @@ import sqlite3
 import requests
 
 DB_PATH = "pr-dashboard.db"
-REPOS = [
-    "dotnet/aspire",
-    "dotnet/maui",
-    "dotnet/roslyn",
-    "dotnet/runtime",
-    "golang/go",
-    "microsoft/vscode",
-    "rust-lang/rust",
-]
 
 def get_session():
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -155,16 +146,29 @@ def backfill_repo(conn, session, repo):
 
 
 def main():
-    conn = sqlite3.connect(DB_PATH)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repos", nargs="*", help="Repos to process (default: all in DB)")
+    parser.add_argument("--db", default=DB_PATH)
+    args = parser.parse_args()
+
+    conn = sqlite3.connect(args.db)
     conn.execute("PRAGMA journal_mode=WAL")
     session = get_session()
-    
+
+    if args.repos:
+        repos = args.repos
+    else:
+        repos = [r[0] for r in conn.execute(
+            "SELECT DISTINCT repo FROM items ORDER BY repo"
+        ).fetchall()]
+
     # Check rate limit before starting
     remaining, _ = check_rate_limit(session)
     print(f"Rate limit remaining: {remaining}")
-    print(f"Need ~{sum(1 for r in REPOS for _ in [1]) * 50}+ API calls per 1K issues\n")
-    
-    for repo in REPOS:
+    print(f"Repos: {', '.join(repos)}\n")
+
+    for repo in repos:
         backfill_repo(conn, session, repo)
         print()
     
