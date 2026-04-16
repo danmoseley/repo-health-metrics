@@ -19,17 +19,6 @@ from datetime import datetime, timedelta, timezone
 DB_PATH = "pr-dashboard.db"
 BATCH_SIZE = 50
 
-# Repos to process (same as analyzed repos, excluding legacy predecessors)
-REPOS = [
-    "dotnet/runtime",
-    "dotnet/roslyn",
-    "dotnet/maui",
-    "microsoft/aspire",
-    "microsoft/vscode",
-    "rust-lang/rust",
-    "golang/go",
-]
-
 # Match known Copilot co-author trailers (GitHub noreply addresses)
 TRAILER_RE = re.compile(
     r"co-authored-by:\s*copilot\s*<[^>]*@users\.noreply\.github\.com>",
@@ -73,7 +62,13 @@ def has_copilot_trailer(message):
 
 
 def main():
-    conn = sqlite3.connect(DB_PATH)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repos", nargs="*", help="Repos to process (default: all in DB)")
+    parser.add_argument("--db", default=DB_PATH)
+    args = parser.parse_args()
+
+    conn = sqlite3.connect(args.db)
 
     # Ensure copilot_trailer column exists
     try:
@@ -92,10 +87,17 @@ def main():
     """)
     conn.commit()
 
+    if args.repos:
+        repos = args.repos
+    else:
+        repos = [r[0] for r in conn.execute(
+            "SELECT DISTINCT repo FROM items ORDER BY repo"
+        ).fetchall()]
+
     # Cutoff: PRs created in last 12 months
     cutoff = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    for repo in REPOS:
+    for repo in repos:
         owner, name = repo.split("/")
 
         # Check/init checkpoint
