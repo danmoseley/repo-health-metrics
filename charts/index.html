@@ -25,7 +25,7 @@
 </head>
 <body>
 <h1>Repo Health Metrics</h1>
-<p class="subtitle">dotnet/runtime · dotnet/roslyn · dotnet/maui · microsoft/aspire · microsoft/vscode · rust-lang/rust · golang/go</p>
+<p class="subtitle">dotnet/runtime · dotnet/roslyn · dotnet/maui · microsoft/aspire · microsoft/vcpkg · microsoft/vscode · rust-lang/rust · golang/go</p>
 
 <div class="toc-wrapper">
 <div class="toc">
@@ -35,8 +35,14 @@
     <a href="#open-prs">Open Pull Requests Over Time</a>
     <a href="#net-flow">Net Issue Flow</a>
     <a href="#merge-rate">PR Merge Rate</a>
+    <a href="#merge-rate-zoomed">PR Merge Rate (120 days)</a>
+    <a href="#opened-vs-merged-zoomed">Opened vs Merged (120 days)</a>
     <a href="#close-ratio">Issue Close Ratio</a>
     <a href="#ttm">Time to Merge</a>
+    <a href="#ttc">Time to Comment</a>
+    <a href="#copilot-ttc">Copilot Time to Comment</a>
+    <a href="#ctm">First Comment to Merge</a>
+    <a href="#copilot-ctm">Copilot Comment to Merge</a>
     <a href="#pr-age">Open PR Age (Backlog Staleness)</a>
     <a href="#responsiveness">Issue Turnaround</a>
   </div>
@@ -70,6 +76,7 @@
     <a href="#dash-roslyn">roslyn</a>
     <a href="#dash-maui">maui</a>
     <a href="#dash-aspire">aspire</a>
+    <a href="#dash-vcpkg">vcpkg</a>
     <a href="#dash-vscode">vscode</a>
     <a href="#dash-rust">rust</a>
     <a href="#dash-go">go</a>
@@ -104,8 +111,14 @@
 <div class="chart" id="open-prs"><img src="open_prs_comparison.png" alt="Open PRs"></div>
 <div class="chart" id="net-flow"><img src="net_issue_flow_comparison.png" alt="Net Issue Flow"></div>
 <div class="chart" id="merge-rate"><img src="pr_merge_rate_comparison.png" alt="PR Merge Rate"></div>
+<div class="chart" id="merge-rate-zoomed"><img src="pr_merge_rate_zoomed.png" alt="PR Merge Rate (120 days)"></div>
+<div class="chart" id="opened-vs-merged-zoomed"><img src="pr_opened_vs_merged_zoomed.png" alt="PRs Opened vs Merged (120 days)"></div>
 <div class="chart" id="close-ratio"><img src="sustainability_score.png" alt="Issue Close Ratio"></div>
 <div class="chart" id="ttm"><img src="time_to_merge_comparison.png" alt="Time to Merge"></div>
+<div class="chart" id="ttc"><img src="time_to_comment.png" alt="Time to Comment"></div>
+<div class="chart" id="copilot-ttc"><img src="copilot_time_to_comment.png" alt="Copilot Time to Comment"></div>
+<div class="chart" id="ctm"><img src="time_comment_to_merge.png" alt="First Comment to Merge"></div>
+<div class="chart" id="copilot-ctm"><img src="copilot_time_comment_to_merge.png" alt="Copilot Comment to Merge"></div>
 <div class="chart" id="pr-age"><img src="open_pr_age.png" alt="Open PR Age"></div>
 <div class="chart" id="responsiveness"><img src="issue_responsiveness_comparison.png" alt="Issue Turnaround"></div>
 <div class="chart" id="maintainers"><img src="active_maintainers_comparison.png" alt="Active Maintainers"></div>
@@ -135,6 +148,7 @@
 <div class="chart" id="dash-roslyn"><img src="dashboard_dotnet_roslyn.png" alt="roslyn dashboard"></div>
 <div class="chart" id="dash-maui"><img src="dashboard_dotnet_maui.png" alt="maui dashboard"></div>
 <div class="chart" id="dash-aspire"><img src="dashboard_microsoft_aspire.png" alt="aspire dashboard"></div>
+<div class="chart" id="dash-vcpkg"><img src="dashboard_microsoft_vcpkg.png" alt="vcpkg dashboard"></div>
 <div class="chart" id="dash-vscode"><img src="dashboard_microsoft_vscode.png" alt="vscode dashboard"></div>
 <div class="chart" id="dash-rust"><img src="dashboard_rust-lang_rust.png" alt="rust dashboard"></div>
 <div class="chart" id="dash-go"><img src="dashboard_golang_go.png" alt="go dashboard"></div>

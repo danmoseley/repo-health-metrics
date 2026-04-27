@@ -94,6 +94,32 @@ closed_at=2022-08-24T05:55:50Z  merged_at=2022-08-24T05:55:50Z  state=CLOSED
 is_pull_request=1  author=cuishuang  merged_by=cuishuang
 ```
 
+### `pr_first_comment` — first non-author, non-bot comment per PR
+
+Used for "time to comment" and "time from comment to merge" charts.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | e.g. `dotnet/runtime` |
+| `number` | INTEGER | NOT NULL | — | PR number within repo |
+| `first_comment_at` | TEXT | NOT NULL | — | ISO 8601 timestamp of the first qualifying comment |
+| `commenter` | TEXT | NOT NULL | — | GitHub username of the commenter |
+
+**Primary key:** `(repo, number)`
+
+Only covers issue comments (`/issues/comments` endpoint), not PR review comments or review submissions. Populated by `fetch_comments.py` for repos: dotnet/runtime, dotnet/roslyn, dotnet/maui, microsoft/aspire, microsoft/vcpkg.
+
+### `comment_fetch_progress` — bookkeeping for fetch_comments.py
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | Repository |
+| `last_comment_id` | INTEGER | yes | — | Highest comment ID processed |
+| `last_since` | TEXT | yes | — | ISO timestamp used for `since` parameter |
+| `updated_at` | TEXT | yes | — | Last fetch timestamp |
+
+**Primary key:** `(repo)`
+
 ## Backup / Restore
 
 - **Backup:** `data/items.csv.gz` — gzipped CSV of the full `items` table
@@ -110,3 +136,4 @@ is_pull_request=1  author=cuishuang  merged_by=cuishuang
 | `fetch_copilot_requesters.py` | Copilot requester for Copilot PRs | GraphQL | copilot_requester |
 | `fetch_copilot_commits.py` | Co-authored-by: Copilot trailer in first commit | GraphQL | copilot_trailer |
 | `fetch_issue_authors.py` | Author for issues (backfill) | REST | author (for issues only) |
+| `fetch_comments.py` | First qualifying comment per PR | REST | pr_first_comment table |

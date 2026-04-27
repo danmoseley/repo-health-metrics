@@ -46,6 +46,7 @@ REPO_COLORS = {
     "dotnet/aspire": "#4CAF50",    # green (transferred to microsoft/aspire)
     "microsoft/aspire": "#4CAF50", # green
     "microsoft/vscode": "#007ACC", # VS Code blue
+    "microsoft/vcpkg": "#6A1B9A",  # deep purple
     "rust-lang/rust": "#B7410E",   # rust red-brown
     "golang/go": "#00897B",        # teal
 }
@@ -57,6 +58,7 @@ REPO_SHORT = {
     "dotnet/aspire": "aspire",
     "microsoft/aspire": "aspire",
     "microsoft/vscode": "vscode",
+    "microsoft/vcpkg": "vcpkg",
     "rust-lang/rust": "rust",
     "golang/go": "go",
 }
@@ -2770,6 +2772,484 @@ def chart_gini_over_time(all_items, output_dir):
     print(f"  {path}")
 
 
+# ── Zoomed Charts (120-day x-axis) ──────────────────────────────────────────
+
+
+def chart_pr_merge_rate_zoomed(all_series, output_dir):
+    """PR merge rate (merged per week), last 120 days, ~1-week smoothing."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PR Merge Rate — Last 120 Days", "PRs Merged / Week")
+
+    cutoff = datetime.now().date() - timedelta(days=120)
+
+    visible_data = []
+    line_ends = []
+    for repo, series in all_series.items():
+        if not series or repo in GERRIT_REPOS:
+            continue
+        weeks = series["weeks"]
+        vals = smooth(series["pr_merged"], window=2)
+        # Trim to last 120 days
+        trimmed_w, trimmed_v = [], []
+        for w, v in zip(weeks, vals):
+            if w >= cutoff:
+                trimmed_w.append(w)
+                trimmed_v.append(v)
+        if not trimmed_w:
+            continue
+        ax.plot(trimmed_w, trimmed_v,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(trimmed_v)
+        line_ends.append((trimmed_w, trimmed_v, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
+    ax.set_ylim(ymin, max(ymax, 50))
+    # Monthly x-axis ticks for 120-day range
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pr_merge_rate_zoomed.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_pr_opened_vs_merged_zoomed(all_series, output_dir):
+    """PRs opened vs merged, last 120 days, ~1-week smoothing, all repos."""
+    cutoff = datetime.now().date() - timedelta(days=120)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PRs Opened vs Merged — Last 120 Days", "Per Week")
+
+    visible_data = []
+    for repo, series in all_series.items():
+        if not series or repo in GERRIT_REPOS:
+            continue
+        weeks = series["weeks"]
+        opened_s = smooth(series["pr_opened"], window=2)
+        merged_s = smooth(series["pr_merged"], window=2)
+
+        trimmed_w = [w for w in weeks if w >= cutoff]
+        if not trimmed_w:
+            continue
+        start_idx = weeks.index(trimmed_w[0])
+
+        color = get_color(repo)
+        short = get_short(repo)
+        ax.plot(trimmed_w, opened_s[start_idx:],
+                color=color, linewidth=1.2, alpha=0.5, linestyle="--",
+                label=f"{short} opened")
+        ax.plot(trimmed_w, merged_s[start_idx:],
+                color=color, linewidth=1.5, alpha=0.85,
+                label=f"{short} merged")
+        visible_data.extend([opened_s[start_idx:], merged_s[start_idx:]])
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
+    ax.set_ylim(ymin, max(ymax, 50))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+    ax.legend(loc="upper left", fontsize=9, ncol=2)
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pr_opened_vs_merged_zoomed.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+# ── Comment-Based Charts ────────────────────────────────────────────────────
+
+# Repos to include in comment-based charts
+COMMENT_CHART_REPOS = {
+    "dotnet/runtime", "dotnet/roslyn", "dotnet/maui",
+    "microsoft/aspire", "microsoft/vcpkg",
+}
+
+
+def load_first_comments(conn, repo):
+    """Load first-comment data from pr_first_comment table.
+    Returns dict: PR number -> {'first_comment_at': date, 'commenter': str}
+    """
+    try:
+        rows = conn.execute(
+            "SELECT number, first_comment_at, commenter FROM pr_first_comment WHERE repo = ?",
+            (repo,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    result = {}
+    for number, fc_at, commenter in rows:
+        d = parse_date(fc_at)
+        if d:
+            result[number] = {"first_comment_at": d, "commenter": commenter}
+    return result
+
+
+def compute_monthly_time_to_comment(items, first_comments):
+    """Compute P50 time-to-first-comment (days) per month.
+    Includes all PRs (not just merged) that received a qualifying comment
+    before merge/close.  Returns (months, p50s) lists.
+    """
+    from statistics import median
+    ttc_by_month = defaultdict(list)
+    for item in items:
+        if not item["is_pr"]:
+            continue
+        fc = first_comments.get(item["number"])
+        if not fc:
+            continue
+        cd = parse_date(item["created_at"])
+        if not cd:
+            continue
+        fc_date = fc["first_comment_at"]
+        # Skip comments that arrived after merge (not review latency)
+        md = parse_date(item["merged_at"]) if item.get("merged_at") else None
+        if md and fc_date > md:
+            continue
+        days = (fc_date - cd).days
+        if days < 0:
+            continue
+        month_key = cd.replace(day=1)
+        ttc_by_month[month_key].append(days)
+
+    if not ttc_by_month:
+        return [], []
+
+    months = sorted(ttc_by_month.keys())
+    p50s = [median(ttc_by_month[m]) for m in months]
+    return months, p50s
+
+
+def compute_monthly_comment_to_merge(items, first_comments):
+    """Compute P50 time from first comment to merge (days) per month.
+    Only includes merged PRs that received a qualifying comment before merge.
+    Buckets by PR creation month for consistency.
+    Returns (months, p50s) lists.
+    """
+    from statistics import median
+    ctm_by_month = defaultdict(list)
+    for item in items:
+        if not item["is_pr"] or not item.get("merged_at"):
+            continue
+        fc = first_comments.get(item["number"])
+        if not fc:
+            continue
+        cd = parse_date(item["created_at"])
+        md = parse_date(item["merged_at"])
+        fc_date = fc["first_comment_at"]
+        if not cd or not md:
+            continue
+        # Comment must have arrived before merge
+        if fc_date > md:
+            continue
+        days = (md - fc_date).days
+        if days < 0:
+            continue
+        month_key = cd.replace(day=1)
+        ctm_by_month[month_key].append(days)
+
+    if not ctm_by_month:
+        return [], []
+
+    months = sorted(ctm_by_month.keys())
+    p50s = [median(ctm_by_month[m]) for m in months]
+    return months, p50s
+
+
+def chart_time_to_comment(all_items, all_first_comments, output_dir):
+    """P50 time-to-first-comment, multi-repo, 12-month x-axis."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time to First Comment — P50 (6-month avg)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+
+    cutoff = datetime.now().date() - timedelta(days=365)
+
+    visible_data = []
+    line_ends = []
+    for repo in COMMENT_CHART_REPOS:
+        items = all_items.get(repo)
+        fc = all_first_comments.get(repo)
+        if not items or not fc:
+            continue
+        months, p50s = compute_monthly_time_to_comment(items, fc)
+        if not months:
+            continue
+        # Trim to last 12 months
+        trimmed = [(m, v) for m, v in zip(months, p50s) if m >= cutoff]
+        if not trimmed:
+            continue
+        tm, tv = zip(*trimmed)
+        tm, tv = list(tm), list(tv)
+        smoothed = smooth(tv, window=6)
+        ax.plot(tm, smoothed,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(smoothed)
+        line_ends.append((tm, smoothed, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping time-to-comment — no comment data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "P50 = median days from PR creation to first non-author comment",
+        "Includes all PRs (not just merged); excludes post-merge comments",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "time_to_comment.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
+    """P50 time-to-first-comment: Copilot vs Human PRs, runtime only, monthly."""
+    from datetime import date as _date
+    today = _date.today()
+    coverage_cutoff = today - timedelta(days=365)
+    MIN_PRS = 10
+
+    repo = "dotnet/runtime"
+    items = all_items.get(repo)
+    fc = all_first_comments.get(repo)
+    if not items or not fc:
+        print("  (skipping copilot time-to-comment — no data)")
+        return
+
+    monthly_ttc = defaultdict(lambda: {"cop": [], "hum": []})
+    for item in items:
+        if not item["is_pr"]:
+            continue
+        cd = parse_date(item["created_at"])
+        if not cd or cd < coverage_cutoff:
+            continue
+        cls = _classify_copilot(item)
+        if cls == "unknown":
+            continue
+        fc_entry = fc.get(item["number"])
+        if not fc_entry:
+            continue
+        fc_date = fc_entry["first_comment_at"]
+        # Skip comments that arrived after merge
+        md = parse_date(item["merged_at"]) if item.get("merged_at") else None
+        if md and fc_date > md:
+            continue
+        days = (fc_date - cd).days
+        if days < 0:
+            continue
+        is_cop = cls in ("cca", "assisted")
+        key = "cop" if is_cop else "hum"
+        month = cd.replace(day=1)
+        monthly_ttc[month][key].append(days)
+
+    months = sorted(monthly_ttc.keys())
+    if months and (today - months[-1]).days < 14:
+        months = months[:-1]
+    if not months:
+        print("  (skipping copilot time-to-comment — no data)")
+        return
+
+    import numpy as np
+    cop_p50, hum_p50 = [], []
+    for m in months:
+        d = monthly_ttc[m]
+        for key, p50_list in [("cop", cop_p50), ("hum", hum_p50)]:
+            vals = sorted(d[key])
+            if len(vals) >= MIN_PRS:
+                p50_list.append(float(np.median(vals)))
+            else:
+                p50_list.append(float("nan"))
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time to First Comment: Copilot vs Human — dotnet/runtime (Monthly P50)", "Days")
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+
+    ax.plot(months, cop_p50, color="#e74c3c", label="Copilot PRs p50",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.plot(months, hum_p50, color="#3498db", label="Human PRs p50",
+            linewidth=2.5, alpha=0.9, marker="s", markersize=4)
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper right", fontsize=10)
+    add_insight_box(ax, [
+        "P50 days from PR creation to first non-author, non-bot comment",
+        "Copilot = CCA + assisted PRs (runtime only); excludes post-merge comments",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_time_to_comment.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_time_comment_to_merge(all_items, all_first_comments, output_dir):
+    """P50 time from first human comment to merge, multi-repo, 12-month x-axis."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time from First Comment to Merge — P50 (6-month avg)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+
+    cutoff = datetime.now().date() - timedelta(days=365)
+
+    visible_data = []
+    line_ends = []
+    for repo in COMMENT_CHART_REPOS:
+        items = all_items.get(repo)
+        fc = all_first_comments.get(repo)
+        if not items or not fc:
+            continue
+        months, p50s = compute_monthly_comment_to_merge(items, fc)
+        if not months:
+            continue
+        trimmed = [(m, v) for m, v in zip(months, p50s) if m >= cutoff]
+        if not trimmed:
+            continue
+        tm, tv = zip(*trimmed)
+        tm, tv = list(tm), list(tv)
+        smoothed = smooth(tv, window=6)
+        ax.plot(tm, smoothed,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(smoothed)
+        line_ends.append((tm, smoothed, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping comment-to-merge — no comment data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "P50 = median days from first non-author comment to merge",
+        "Only includes merged PRs with at least one qualifying comment",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "time_comment_to_merge.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir):
+    """P50 time from first comment to merge: Copilot vs Human, runtime only."""
+    from datetime import date as _date
+    today = _date.today()
+    coverage_cutoff = today - timedelta(days=365)
+    MIN_PRS = 10
+
+    repo = "dotnet/runtime"
+    items = all_items.get(repo)
+    fc = all_first_comments.get(repo)
+    if not items or not fc:
+        print("  (skipping copilot comment-to-merge — no data)")
+        return
+
+    monthly_ctm = defaultdict(lambda: {"cop": [], "hum": []})
+    for item in items:
+        if not item["is_pr"] or not item.get("merged_at"):
+            continue
+        cd = parse_date(item["created_at"])
+        md = parse_date(item["merged_at"])
+        if not cd or not md or cd < coverage_cutoff:
+            continue
+        cls = _classify_copilot(item)
+        if cls == "unknown":
+            continue
+        fc_entry = fc.get(item["number"])
+        if not fc_entry:
+            continue
+        fc_date = fc_entry["first_comment_at"]
+        # Comment must have arrived before merge
+        if fc_date > md:
+            continue
+        days = (md - fc_date).days
+        if days < 0:
+            continue
+        is_cop = cls in ("cca", "assisted")
+        key = "cop" if is_cop else "hum"
+        month = cd.replace(day=1)  # bucket by PR creation month
+        monthly_ctm[month][key].append(days)
+
+    months = sorted(monthly_ctm.keys())
+    if months and (today - months[-1]).days < 14:
+        months = months[:-1]
+    if not months:
+        print("  (skipping copilot comment-to-merge — no data)")
+        return
+
+    import numpy as np
+    cop_p50, hum_p50 = [], []
+    for m in months:
+        d = monthly_ctm[m]
+        for key, p50_list in [("cop", cop_p50), ("hum", hum_p50)]:
+            vals = sorted(d[key])
+            if len(vals) >= MIN_PRS:
+                p50_list.append(float(np.median(vals)))
+            else:
+                p50_list.append(float("nan"))
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time from First Comment to Merge: Copilot vs Human — dotnet/runtime (Monthly P50)", "Days")
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+
+    ax.plot(months, cop_p50, color="#e74c3c", label="Copilot PRs p50",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.plot(months, hum_p50, color="#3498db", label="Human PRs p50",
+            linewidth=2.5, alpha=0.9, marker="s", markersize=4)
+
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper right", fontsize=10)
+    add_insight_box(ax, [
+        "P50 days from first non-author comment to merge (merged PRs only)",
+        "If Copilot code review helps, this gap should shrink",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_time_comment_to_merge.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate repo health charts")
@@ -2842,6 +3322,17 @@ def main():
         all_maint[repo] = compute_monthly_maintainer_stats(all_items[repo])
         if all_maint[repo][0]:  # has months
             has_maintainer_data = True
+
+    print("Loading first-comment data...")
+    all_first_comments = {}
+    for repo in repos:
+        if repo in COMMENT_CHART_REPOS:
+            fc = load_first_comments(conn, repo)
+            if fc:
+                all_first_comments[repo] = fc
+                print(f"  {repo}: {len(fc)} PRs with comment data")
+            else:
+                print(f"  {repo}: no comment data")
     print()
 
     # Generate charts
@@ -2856,8 +3347,15 @@ def main():
         chart_open_prs_comparison(all_series, output_dir)
         chart_net_flow_comparison(all_series, output_dir)
         chart_pr_merge_rate_comparison(all_series, output_dir)
+        chart_pr_merge_rate_zoomed(all_series, output_dir)
+        chart_pr_opened_vs_merged_zoomed(all_series, output_dir)
         chart_sustainability_score(all_series, output_dir)
         chart_time_to_merge(all_ttm, output_dir)
+        if all_first_comments:
+            chart_time_to_comment(all_items, all_first_comments, output_dir)
+            chart_copilot_time_to_comment(all_items, all_first_comments, output_dir)
+            chart_time_comment_to_merge(all_items, all_first_comments, output_dir)
+            chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir)
         chart_open_pr_age(all_items, output_dir)
         chart_issue_close_rate(all_items, output_dir)
         if has_maintainer_data:
