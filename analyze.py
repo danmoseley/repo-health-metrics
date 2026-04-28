@@ -560,9 +560,14 @@ def _data_date():
 
 
 def _stamp_chart(ax, title):
-    """Add chart ID + data date outside axes, bottom-left of the figure."""
+    """Add chart ID + data date outside axes, bottom-left of the figure.
+    Idempotent per figure: subsequent calls on additional axes are no-ops
+    so multi-axes figures aren't stamped multiple times in the same spot."""
     label = f"{_chart_id(title)}  {_data_date()}"
     fig = ax.get_figure()
+    if getattr(fig, "_chart_stamped", False):
+        return
+    fig._chart_stamped = True
     fig.text(0.01, 0.005, label, fontsize=7, color="black", va="bottom", ha="left",
              fontfamily="monospace")
 
@@ -3288,8 +3293,8 @@ def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
         deltas = []
         for wk in weeks:
             window_start = wk - timedelta(days=WINDOW_DAYS)
-            cop_vals = [h for cd, h, is_cop in dp if is_cop and window_start <= cd <= wk]
-            hum_vals = [h for cd, h, is_cop in dp if not is_cop and window_start <= cd <= wk]
+            cop_vals = [h for cd, h, is_cop in dp if is_cop and window_start <= cd < wk + timedelta(days=7)]
+            hum_vals = [h for cd, h, is_cop in dp if not is_cop and window_start <= cd < wk + timedelta(days=7)]
             if len(cop_vals) >= MIN_PRS and len(hum_vals) >= MIN_PRS:
                 deltas.append(float(np.median(cop_vals) - np.median(hum_vals)))
             else:
@@ -3403,7 +3408,7 @@ def chart_time_comment_to_merge(all_items, all_first_comments, output_dir):
         p50s = []
         for wk in weeks:
             window_start = wk - timedelta(days=WINDOW_DAYS)
-            vals = [d for cd, d in data_points if window_start <= cd <= wk]
+            vals = [d for cd, d in data_points if window_start <= cd < wk + timedelta(days=7)]
             p50s.append(float(np.median(vals)) if len(vals) >= MIN_PRS else float("nan"))
 
         color = get_color(repo)
@@ -3501,8 +3506,8 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
         deltas = []
         for wk in weeks:
             window_start = wk - timedelta(days=WINDOW_DAYS)
-            cop_vals = [d for cd, d, is_cop in dp if is_cop and window_start <= cd <= wk]
-            hum_vals = [d for cd, d, is_cop in dp if not is_cop and window_start <= cd <= wk]
+            cop_vals = [d for cd, d, is_cop in dp if is_cop and window_start <= cd < wk + timedelta(days=7)]
+            hum_vals = [d for cd, d, is_cop in dp if not is_cop and window_start <= cd < wk + timedelta(days=7)]
             if len(cop_vals) >= MIN_PRS and len(hum_vals) >= MIN_PRS:
                 deltas.append(float(np.median(cop_vals) - np.median(hum_vals)))
             else:
