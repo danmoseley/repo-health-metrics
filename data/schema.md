@@ -107,14 +107,14 @@ Used for "time to comment" and "time from comment to merge" charts.
 
 **Primary key:** `(repo, number)`
 
-Only covers issue comments (`/issues/comments` endpoint), not PR review comments or review submissions. Populated by `fetch_comments.py` for repos: dotnet/runtime, dotnet/roslyn, dotnet/maui, microsoft/aspire, microsoft/vcpkg.
+Stores the earliest qualifying comment from **both** `/issues/comments` (conversation comments) and `/pulls/comments` (inline review comments). Populated by `fetch_comments.py` for repos: dotnet/runtime, dotnet/roslyn, dotnet/maui, microsoft/aspire, microsoft/vcpkg.
 
 ### `comment_fetch_progress` — bookkeeping for fetch_comments.py
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | `repo` | TEXT | NOT NULL | — | Repository |
-| `last_comment_id` | INTEGER | yes | — | Highest comment ID processed |
+| `last_comment_id` | INTEGER | NOT NULL | 0 | Highest comment ID processed |
 | `last_since` | TEXT | yes | — | ISO timestamp used for `since` parameter |
 | `updated_at` | TEXT | yes | — | Last fetch timestamp |
 

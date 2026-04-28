@@ -205,12 +205,6 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
 
     # Load PR info for author matching
     pr_info = load_pr_authors(conn, repo)
-    # Also load from predecessor repos for runtime
-    if repo == "dotnet/runtime":
-        for pred in ("dotnet/coreclr", "dotnet/corefx"):
-            pred_info = load_pr_authors(conn, pred)
-            # These PRs are in the items table under their original repo
-            # but comments come from the runtime repo — skip these
     print(f"  Loaded {len(pr_info)} PR records for author matching")
 
     # Load existing first comments to avoid duplicating
@@ -311,16 +305,17 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
 
         time.sleep(REQUEST_DELAY)
 
-    # Final commit
+    # Final commit — advance last_since to the last comment we processed
     if batch:
         conn.executemany(
             "INSERT OR IGNORE INTO pr_first_comment (repo, number, first_comment_at, commenter) "
             "VALUES (?, ?, ?, ?)", batch
         )
+    final_since = comments[-1].get("created_at", since) if comments else since
     conn.execute(
         "INSERT OR REPLACE INTO comment_fetch_progress (repo, last_since, last_comment_id, updated_at) "
         "VALUES (?, ?, ?, ?)",
-        (repo, since, last_seen_id, datetime.now(timezone.utc).isoformat())
+        (repo, final_since, last_seen_id, datetime.now(timezone.utc).isoformat())
     )
     conn.commit()
 
@@ -480,10 +475,11 @@ def fetch_review_comments_for_repo(session, conn, repo, since_date):
             "UPDATE pr_first_comment SET first_comment_at = ?, commenter = ? "
             "WHERE repo = ? AND number = ?", batch_update
         )
+    final_since = comments[-1].get("created_at", since) if comments else since
     conn.execute(
         "INSERT OR REPLACE INTO comment_fetch_progress (repo, last_since, last_comment_id, updated_at) "
         "VALUES (?, ?, ?, ?)",
-        (repo + "/reviews", since, last_seen_id, datetime.now(timezone.utc).isoformat())
+        (repo + "/reviews", final_since, last_seen_id, datetime.now(timezone.utc).isoformat())
     )
     conn.commit()
 
