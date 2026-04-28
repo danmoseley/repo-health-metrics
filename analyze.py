@@ -3301,7 +3301,7 @@ def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
         return
 
     # Y-axis tuned to typical hour-scale variation
-    ax.set_ylim(-100, 100)
+    ax.set_ylim(-25, 35)
     ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
     ax.legend(loc="upper right", fontsize=10)
@@ -3313,14 +3313,14 @@ def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
                 xycoords="axes fraction",
                 arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
                                 color="#888", lw=2))
-    ax.text(arrow_x - 0.005, 0.80, "longer before first\ncopilot comment",
+    ax.text(arrow_x - 0.005, 0.80, "longer before first non-author\ncomment on copilot PRs",
             transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
             color="#666", style="italic")
     ax.annotate("", xy=(arrow_x, 0.22), xytext=(arrow_x, 0.45),
                 xycoords="axes fraction",
                 arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
                                 color="#888", lw=2))
-    ax.text(arrow_x - 0.005, 0.20, "longer before first\nhuman comment",
+    ax.text(arrow_x - 0.005, 0.20, "longer before first non-author\ncomment on human PRs",
             transform=ax.transAxes, fontsize=8, ha="right", va="top",
             color="#666", style="italic")
 
@@ -3513,7 +3513,7 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
         return
 
     bound = max(abs(min(visible_data)), abs(max(visible_data)), 0.5) * 1.15
-    ax.set_ylim(-25, 25)
+    ax.set_ylim(-10, 10)
     ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     ax.legend(loc="upper right", fontsize=10)
