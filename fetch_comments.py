@@ -109,10 +109,14 @@ def init_db(db_path):
 
 
 def fetch_page(session, url, params, max_retries=5):
-    """Fetch a single API page with retry and rate-limit handling."""
+    """Fetch a single API page with retry and rate-limit handling.
+    Rate-limit responses (HTTP 403 + retry-after) do NOT count against
+    max_retries — they have a separate cap (rate_limit_retries) since waiting
+    out a rate limit is the expected behavior, not a transient failure."""
     rate_limit_retries = 0
+    attempt = 0
 
-    for attempt in range(max_retries):
+    while attempt < max_retries:
         if _shutdown:
             return None
         try:
@@ -121,6 +125,7 @@ def fetch_page(session, url, params, max_retries=5):
             wait = min(4 ** attempt, 120)
             print(f"  Network error: {e}, retry in {wait}s...")
             time.sleep(wait)
+            attempt += 1
             continue
 
         remaining = int(resp.headers.get("X-RateLimit-Remaining", 9999))
@@ -142,12 +147,14 @@ def fetch_page(session, url, params, max_retries=5):
             wait = int(retry_after) + 5 if retry_after else max(reset_ts - time.time(), 60) + 5
             print(f"  Rate limited. Sleeping {wait:.0f}s...")
             time.sleep(wait)
+            # Don't consume an attempt — rate limiting is expected, not a failure
             continue
 
         if resp.status_code in (500, 502, 503):
             wait = min(4 ** attempt, 120)
             print(f"  Server error {resp.status_code}, retry in {wait}s...")
             time.sleep(wait)
+            attempt += 1
             continue
 
         print(f"  Unexpected status {resp.status_code}: {resp.text[:200]}")
