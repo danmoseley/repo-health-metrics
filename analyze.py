@@ -1963,9 +1963,9 @@ def chart_copilot_adoption(all_items, output_dir):
     plt.close(fig)
     print(f"  {path}")
 
-    # --- Chart 3: CCA vs Assisted aggregated across all repos ---
+    # --- Chart 3: CCA vs Assisted aggregated across dotnet repos ---
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot PRs by Type — All Repos Aggregated (4-week avg)", "PRs / week")
+    setup_axes(ax, "Copilot PRs by Type — dotnet repos aggregated (4-week avg)", "PRs / week")
 
     # Track per-week trailer-check coverage so we can drop weeks where
     # the backfill hasn't caught up (otherwise Assisted is artifactually low).
@@ -1974,7 +1974,8 @@ def chart_copilot_adoption(all_items, output_dir):
     week_total = defaultdict(int)     # all PRs in week (including unknown)
     week_checked = defaultdict(int)   # PRs in week with copilot_trailer set
 
-    aggregate_repos = [r for r in repos_with_coverage if r not in GERRIT_REPOS]
+    DOTNET_AGGREGATE_REPOS = {"dotnet/runtime", "dotnet/roslyn", "dotnet/maui", "microsoft/aspire"}
+    aggregate_repos = [r for r in DOTNET_AGGREGATE_REPOS if r in repos_with_coverage]
 
     for repo in aggregate_repos:
         items = all_items.get(repo) or []
@@ -2020,9 +2021,9 @@ def chart_copilot_adoption(all_items, output_dir):
         add_direction_arrow(ax, "up")
         repos_str = ", ".join(get_short(r) for r in sorted(aggregate_repos))
         add_insight_box(ax, [
-            f"Total weekly PR count across {len(aggregate_repos)} repos with sufficient trailer coverage",
-            "Useful for spotting whether overall Copilot usage is dominated by CCA or human-assisted",
-            f"Repos: {repos_str} (Gerrit-mirrored repos and repos with <80% trailer coverage excluded)",
+            f"Total weekly PR count across {len(aggregate_repos)} dotnet repos: {repos_str}",
+            "Useful for spotting whether dotnet Copilot usage is dominated by CCA or human-assisted",
+            "Other repos (vscode, vcpkg, rust, go, pyright) excluded to keep focus on the dotnet stack",
             "Weeks with <90% per-week trailer-check coverage dropped (data-collection lag)",
         ])
     fig.tight_layout()
