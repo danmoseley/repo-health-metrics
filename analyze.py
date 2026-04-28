@@ -3088,10 +3088,10 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
 # ── Comment-Based Charts ────────────────────────────────────────────────────
 
 # Repos to include in comment-based charts
-COMMENT_CHART_REPOS = {
+COMMENT_CHART_REPOS = (
     "dotnet/runtime", "dotnet/roslyn", "dotnet/maui",
     "microsoft/aspire",
-}
+)
 
 
 def load_first_comments(conn, repo):
@@ -3117,77 +3117,6 @@ def load_first_comments(conn, repo):
         if d:
             result[number] = {"first_comment_at": d, "first_comment_dt": dt, "commenter": commenter}
     return result
-
-
-def compute_monthly_time_to_comment(items, first_comments):
-    """Compute P50 time-to-first-comment (days) per month.
-    Includes all PRs (not just merged) that received a qualifying comment
-    before merge/close.  Returns (months, p50s) lists.
-    """
-    from statistics import median
-    ttc_by_month = defaultdict(list)
-    for item in items:
-        if not item["is_pr"]:
-            continue
-        fc = first_comments.get(item["number"])
-        if not fc:
-            continue
-        cd = parse_date(item["created_at"])
-        if not cd:
-            continue
-        fc_date = fc["first_comment_at"]
-        # Skip comments that arrived after merge (not review latency)
-        md = parse_date(item["merged_at"]) if item.get("merged_at") else None
-        if md and fc_date > md:
-            continue
-        days = (fc_date - cd).days
-        if days < 0:
-            continue
-        month_key = cd.replace(day=1)
-        ttc_by_month[month_key].append(days)
-
-    if not ttc_by_month:
-        return [], []
-
-    months = sorted(ttc_by_month.keys())
-    p50s = [median(ttc_by_month[m]) for m in months]
-    return months, p50s
-
-
-def compute_monthly_comment_to_merge(items, first_comments):
-    """Compute P50 time from first comment to merge (days) per month.
-    Only includes merged PRs that received a qualifying comment before merge.
-    Buckets by PR creation month for consistency.
-    Returns (months, p50s) lists.
-    """
-    from statistics import median
-    ctm_by_month = defaultdict(list)
-    for item in items:
-        if not item["is_pr"] or not item.get("merged_at"):
-            continue
-        fc = first_comments.get(item["number"])
-        if not fc:
-            continue
-        cd = parse_date(item["created_at"])
-        md = parse_date(item["merged_at"])
-        fc_date = fc["first_comment_at"]
-        if not cd or not md:
-            continue
-        # Comment must have arrived before merge
-        if fc_date > md:
-            continue
-        days = (md - fc_date).days
-        if days < 0:
-            continue
-        month_key = cd.replace(day=1)
-        ctm_by_month[month_key].append(days)
-
-    if not ctm_by_month:
-        return [], []
-
-    months = sorted(ctm_by_month.keys())
-    p50s = [median(ctm_by_month[m]) for m in months]
-    return months, p50s
 
 
 def chart_time_to_comment(all_items, all_first_comments, output_dir):
@@ -3509,7 +3438,7 @@ def chart_time_comment_to_merge(all_items, all_first_comments, output_dir):
 
 def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir):
     """Per-repo P50 delta (Copilot − Human) for first-comment-to-merge days, weekly 4-week rolling.
-    Restricted to PRs created from 2025-06-01 onward (earlier copilot data too sparse)."""
+    Restricted to PRs created from 2025-07-01 onward (earlier copilot data too sparse)."""
     import numpy as np
     today = datetime.now().date()
     coverage_cutoff = max(today - timedelta(days=365), date(2025, 7, 1))

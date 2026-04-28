@@ -45,6 +45,7 @@ BOT_ACCOUNTS = {
     "dnfclas", "dotnet-policy-service[bot]",
     "azure-pipelines[bot]", "codecov[bot]", "codecov-commenter",
 }
+BOT_ACCOUNTS_LOWER = {b.lower() for b in BOT_ACCOUNTS}
 
 _shutdown = False
 
@@ -152,12 +153,23 @@ def fetch_page(session, url, params, max_retries=5):
 
 
 def load_pr_authors(conn, repo):
-    """Load PR authors and copilot_requesters for a repo."""
-    rows = conn.execute(
-        "SELECT number, author, copilot_requester FROM items "
-        "WHERE repo = ? AND is_pull_request = 1",
-        (repo,)
-    ).fetchall()
+    """Load PR authors and copilot_requesters for a repo.
+    Falls back gracefully if copilot_requester column doesn't exist (fresh DB)."""
+    try:
+        rows = conn.execute(
+            "SELECT number, author, copilot_requester FROM items "
+            "WHERE repo = ? AND is_pull_request = 1",
+            (repo,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        # copilot_requester column not present — fetch_copilot_requesters.py hasn't run yet
+        rows = [
+            (number, author, None)
+            for number, author in conn.execute(
+                "SELECT number, author FROM items WHERE repo = ? AND is_pull_request = 1",
+                (repo,)
+            ).fetchall()
+        ]
     pr_info = {}
     for number, author, copilot_requester in rows:
         pr_info[number] = {
@@ -169,7 +181,7 @@ def load_pr_authors(conn, repo):
 
 def is_qualifying_comment(commenter, pr_info_entry):
     """Check if a comment qualifies as 'first human comment'."""
-    if not commenter or commenter.lower() in {b.lower() for b in BOT_ACCOUNTS}:
+    if not commenter or commenter.lower() in BOT_ACCOUNTS_LOWER:
         return False
     if not pr_info_entry:
         return False
@@ -225,6 +237,7 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
     total_comments = 0
     new_first_comments = 0
     batch = []
+    comments = []  # avoid UnboundLocalError if fetch_page returns None on first call
 
     while not _shutdown:
         page += 1
@@ -375,6 +388,7 @@ def fetch_review_comments_for_repo(session, conn, repo, since_date):
     updated_first = 0
     batch_insert = []
     batch_update = []
+    comments = []  # avoid UnboundLocalError if fetch_page returns None on first call
 
     while not _shutdown:
         page += 1

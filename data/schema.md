@@ -113,7 +113,7 @@ Stores the earliest qualifying comment from **both** `/issues/comments` (convers
 
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
-| `repo` | TEXT | NOT NULL | — | Repository |
+| `repo` | TEXT | NOT NULL | — | Repository name, e.g. `dotnet/runtime`. The `/pulls/comments` (review-comments) fetch uses pseudo-key `"{repo}/reviews"` to track its own progress separately from the `/issues/comments` pass |
 | `last_comment_id` | INTEGER | NOT NULL | 0 | Highest comment ID processed |
 | `last_since` | TEXT | yes | — | ISO timestamp used for `since` parameter |
 | `updated_at` | TEXT | yes | — | Last fetch timestamp |
