@@ -2079,7 +2079,7 @@ def chart_copilot_merge_success(all_items, output_dir):
     if months and (today - months[-1]).days < 14:
         months = months[:-1]
     # Drop months where < 90% of PRs are resolved (right-censoring bias)
-    MIN_RESOLUTION_RATE = 0.90
+    MIN_RESOLUTION_RATE = 0.75
     def _resolved(d):
         return d["cca_m"] + d["cca_r"] + d["asst_m"] + d["asst_r"] + d["hum_m"] + d["hum_r"]
     def _all(d):
@@ -2123,7 +2123,7 @@ def chart_copilot_merge_success(all_items, output_dir):
     ax.legend(loc="lower right", fontsize=11)
     add_insight_box(ax, [
         "Each point = merge rate of PRs created that month (merged / resolved)",
-        "Months with <90% resolution rate excluded to avoid censoring bias",
+        "Months with <75% resolution rate excluded; recent months may show inflated merge rates as still-open PRs eventually merge or close to avoid censoring bias",
         "CCA = bot-authored; Assisted = human + Co-authored-by trailer; Human = no trailer",
         "Trailer is a lower-bound proxy — not all Copilot use leaves a trailer",
     ])
@@ -2187,7 +2187,7 @@ def chart_copilot_time_to_merge(all_items, output_dir):
     if months and (today - months[-1]).days < 14:
         months = months[:-1]
     # Drop months where < 90% of PRs are resolved (merged or closed) to avoid survivorship bias
-    MIN_RESOLUTION_RATE = 0.90
+    MIN_RESOLUTION_RATE = 0.75
     def _resolved(d):
         return d["cca"] + d["asst"] + d["hum"]
     months = [m for m in months if (
@@ -2233,21 +2233,11 @@ def chart_copilot_time_to_merge(all_items, output_dir):
     ax.plot(months, asst_p50, color="#9b59b6", label="Assisted (Co-authored-by) p50",
             linewidth=2.5, alpha=0.9, marker="^", markersize=5)
 
-    # Sample-size annotations on the smaller-N lines
-    for m, p, n in zip(months, cca_p50, cca_ns):
-        if p == p and n > 0:
-            ax.annotate(f"n={n}", (m, p), textcoords="offset points",
-                        xytext=(0, 10), fontsize=7, color="#c0392b", ha="center")
-    for m, p, n in zip(months, asst_p50, asst_ns):
-        if p == p and n > 0:
-            ax.annotate(f"n={n}", (m, p), textcoords="offset points",
-                        xytext=(0, -14), fontsize=7, color="#7d3c98", ha="center")
-
     ax.set_ylim(0, None)
     ax.legend(loc="upper left", fontsize=10)
     add_insight_box(ax, [
         "Each point = median TTM of PRs created that month (merged PRs only)",
-        "Months with low resolution rate excluded to avoid survivorship bias",
+        "Months with <75% resolution rate excluded; recent months may be slightly biased as still-open PRs continue to resolve",
         "CCA = bot-authored; Assisted = human + Co-authored-by trailer; Human = no trailer",
         "Min sample size: 3 PRs for CCA/Assisted (small populations); 10 for Human",
     ])
