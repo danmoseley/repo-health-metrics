@@ -854,6 +854,7 @@ def chart_net_pr_flow_comparison(all_series, output_dir):
     for repo, series in all_series.items():
         if not series or repo in GERRIT_REPOS:
             continue
+        # Opened − merged (per user request); closures-without-merge are NOT subtracted here
         net = [o - m for o, m in zip(series["pr_opened"], series["pr_merged"])]
         smoothed = smooth(net, window=104)
         alpha = 0.4 if repo == "microsoft/vscode" else 0.85
@@ -873,9 +874,10 @@ def chart_net_pr_flow_comparison(all_series, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Negative = repo is keeping up with incoming PRs (merging at least as fast as they arrive)",
-        "Sustained positive = backlog growing — incoming PRs faster than maintainers can land them",
-        "Most repos hover near zero long-term; vcpkg's positive trend reflects bot-managed merge queue + auto-rebase backlog",
+        "Net = opened − merged (PRs closed without merging are NOT subtracted)",
+        "Negative = repo is merging at least as fast as new PRs arrive",
+        "Sustained positive = open-PR list growing if closures-without-merge stay flat",
+        "vcpkg's positive trend reflects bot-managed merge queue + many stale auto-closed PRs",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -1981,7 +1983,7 @@ def chart_copilot_adoption(all_items, output_dir):
     all_weeks = [w for w in all_weeks if w >= coverage_cutoff]
     if common_end_week:
         all_weeks = [w for w in all_weeks if w <= common_end_week]
-    if (today - all_weeks[-1]).days < 7:
+    if all_weeks and (today - all_weeks[-1]).days < 7:
         all_weeks = all_weeks[:-1]
 
     if all_weeks:
@@ -3062,7 +3064,6 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
         plt.close(fig)
         return
 
-    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
     ax.set_ylim(-100, 250)
     ax.yaxis.set_major_locator(MultipleLocator(50))
     ax.xaxis.set_major_locator(mdates.MonthLocator())
