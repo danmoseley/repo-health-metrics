@@ -1,6 +1,5 @@
 hash	title
 02417a5	Community Issue Turnaround (% Closed Within 30 Days, 6-month avg)
-1431522	Net PR Flow (Opened − Merged per Week, 2-year avg) zoomed to last 4 months
 1b1f105	PR Merge Rate (Merged per Week, 52-week rolling avg)
 1e9930e	First Human Comment to Merge — P50 (weekly, 4-week rolling)
 21eb4ea	Community Issue Time-to-Close — 75th Percentile (12-month avg)
@@ -10,12 +9,12 @@ hash	title
 3ecf41f	Time to Merge PRs — 75th Percentile (18-month avg)
 3ffef8d	Community vs Maintainer Merge Speed (ratio, lower = more equal)
 4774cbc	Copilot PRs by Type (4-week avg)
-51474ed	Time to First Comment Delta (Copilot − Human) — per repo (4-week rolling P50)
-523aa71	PR Merge Rate (Merged per Week, 52-week rolling avg) zoomed to last 4 months
 613d0f6	Median Age of Open PRs (Monthly Snapshot, 6-month avg)
 663108d	Copilot PRs as % of All PRs (4-week avg)
 6c604c1	Open Issues
 7ab7794	Time to First Comment — P50 (weekly, 4-week rolling)
+7f1d798	PR Merge Rate — last 4 months (7-day trailing sum)
+8259e7a	First Comment to Merge Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)
 85e679f	First-Time Community Contributor Retention (% returning within 12 months)
 8847a7f	Community PR Concentration
 9042899	Copilot PRs by Type — All Repos Aggregated (4-week avg)
@@ -31,9 +30,10 @@ b95528c	Issue Close Ratio (Closed / Opened, Trailing 12-Month Window)
 bbff441	PRs: Opened vs Merged (26-week avg)
 bf3e0e9	Open Issues per Active Maintainer (3-month rolling avg)
 c12f8ef	PRs Merged per Active Maintainer (Monthly, 4-month avg)
+c22c906	Time to First Comment Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)
 c7884fc	Community Share of PRs (6-month avg)
 cb9d102	Net PR Flow (Opened − Merged per Week, 2-year avg)
-cca406b	First Comment to Merge Delta (Copilot − Human) — per repo (4-week rolling P50)
+cfcc224	Net PR Flow — last 4 months (7-day trailing sum)
 d797abb	Open PRs (6-month avg)
 dd0bcb3	Community PR Merge Latency (median days, 6-month rolling)
 e98fb5a	Open PRs per Active Maintainer (3-month rolling avg)

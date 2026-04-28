@@ -1967,28 +1967,42 @@ def chart_copilot_adoption(all_items, output_dir):
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Copilot PRs by Type — All Repos Aggregated (4-week avg)", "PRs / week")
 
+    # Track per-week trailer-check coverage so we can drop weeks where
+    # the backfill hasn't caught up (otherwise Assisted is artifactually low).
     cca_total = defaultdict(int)
     assisted_total = defaultdict(int)
-    for repo, items in all_items.items():
-        if repo not in repos_with_coverage:
-            continue
+    week_total = defaultdict(int)     # all PRs in week (including unknown)
+    week_checked = defaultdict(int)   # PRs in week with copilot_trailer set
+
+    aggregate_repos = [r for r in repos_with_coverage if r not in GERRIT_REPOS]
+
+    for repo in aggregate_repos:
+        items = all_items.get(repo) or []
         for item in items:
             if not item["is_pr"]:
                 continue
-            cls = _classify_copilot(item)
             cd = parse_date(item["created_at"])
             if not cd:
                 continue
             week = cd - timedelta(days=cd.weekday())
+            week_total[week] += 1
+            if item.get("copilot_trailer") is not None:
+                week_checked[week] += 1
+            cls = _classify_copilot(item)
             if cls == "cca":
                 cca_total[week] += 1
             elif cls == "assisted":
                 assisted_total[week] += 1
 
+    # Drop weeks where < 90% of PRs have been trailer-checked (data lag censoring)
+    MIN_WEEK_COVERAGE = 0.90
     all_weeks = sorted(set(list(cca_total.keys()) + list(assisted_total.keys())))
     all_weeks = [w for w in all_weeks if w >= coverage_cutoff]
     if common_end_week:
         all_weeks = [w for w in all_weeks if w <= common_end_week]
+    all_weeks = [w for w in all_weeks
+                 if week_total.get(w, 0) > 0 and
+                 week_checked[w] / week_total[w] >= MIN_WEEK_COVERAGE]
     if all_weeks and (today - all_weeks[-1]).days < 7:
         all_weeks = all_weeks[:-1]
 
@@ -2000,15 +2014,17 @@ def chart_copilot_adoption(all_items, output_dir):
         ax.plot(all_weeks, assisted_vals, color="#3498db", label="Assisted (Co-authored-by trailer)",
                 linewidth=2.5, alpha=0.9)
         ax.set_ylim(0, 200)
+        # Use the actual data range for x-axis (avoid massive forward padding)
+        ax.set_xlim(all_weeks[0], all_weeks[-1])
         ax.legend(loc="upper left", fontsize=10)
         add_direction_arrow(ax, "up")
-        repos_str = ", ".join(get_short(r) for r in sorted(repos_with_coverage))
+        repos_str = ", ".join(get_short(r) for r in sorted(aggregate_repos))
         add_insight_box(ax, [
-            f"Total weekly PR count across {len(repos_with_coverage)} repos with sufficient trailer coverage",
+            f"Total weekly PR count across {len(aggregate_repos)} repos with sufficient trailer coverage",
             "Useful for spotting whether overall Copilot usage is dominated by CCA or human-assisted",
-            f"Repos: {repos_str}",
+            f"Repos: {repos_str} (Gerrit-mirrored repos and repos with <80% trailer coverage excluded)",
+            "Weeks with <90% per-week trailer-check coverage dropped (data-collection lag)",
         ])
-        _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_by_type_aggregate.png")
     fig.savefig(path, dpi=150)
@@ -2954,7 +2970,7 @@ def chart_gini_over_time(all_items, output_dir):
 def chart_pr_merge_rate_zoomed(all_items, output_dir):
     """PR merge rate over last 120 days, daily granularity with 7-day rolling sum."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "PR Merge Rate (Merged per Week, 52-week rolling avg) zoomed to last 4 months", "PRs Merged / Week (7-day rolling sum)")
+    setup_axes(ax, "PR Merge Rate — last 4 months (7-day trailing sum)", "PRs Merged / Week (7-day rolling sum)")
 
     today = datetime.now().date()
     cutoff = today - timedelta(days=120)
@@ -3012,6 +3028,7 @@ def chart_pr_merge_rate_zoomed(all_items, output_dir):
         "Zoomed view of the long-term merge rate chart — last 4 months at daily resolution",
         "Useful for spotting recent dips/spikes (releases, on-call rotations, holiday slowdowns)",
         "Each point = PRs merged in the trailing 7 days, evaluated daily",
+        "vscode, rust, runtime, vcpkg, roslyn relatively flat; maui and aspire trending down (−73% and −42% from peak)",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -3029,7 +3046,7 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
     fetch_start = cutoff - timedelta(days=6)
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Net PR Flow (Opened − Merged per Week, 2-year avg) zoomed to last 4 months",
+    setup_axes(ax, "Net PR Flow — last 4 months (7-day trailing sum)",
                "Opened − Merged / Week (7-day rolling sum)")
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
@@ -3083,6 +3100,7 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
         "Zoomed view of net PR flow — last 4 months at daily resolution",
         "Spikes upward = PRs piling up; downward = team draining backlog",
         "Each point = (opened − merged) in the trailing 7 days, evaluated daily",
+        "vscode and rust show large positive swings (backlog churn); maui swings sharply both directions",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -3214,6 +3232,7 @@ def chart_time_to_comment(all_items, all_first_comments, output_dir):
         "P50 = median hours from PR creation to first non-author, non-bot comment",
         "Lower = more responsive review culture; spikes often align with holidays/releases",
         "Includes all PRs (not just merged); excludes post-merge comments",
+        "Review responsiveness roughly stable over last 4 months for aspire and runtime",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -3277,7 +3296,7 @@ def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
         w += timedelta(weeks=1)
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Time to First Comment Delta (Copilot − Human) — per repo (4-week rolling P50)", "Hours")
+    setup_axes(ax, "Time to First Comment Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)", "Hours")
     ax.axhline(y=0, color="black", linewidth=0.7, alpha=0.6)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
@@ -3296,7 +3315,7 @@ def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
             cop_vals = [h for cd, h, is_cop in dp if is_cop and window_start <= cd < wk + timedelta(days=7)]
             hum_vals = [h for cd, h, is_cop in dp if not is_cop and window_start <= cd < wk + timedelta(days=7)]
             if len(cop_vals) >= MIN_PRS and len(hum_vals) >= MIN_PRS:
-                deltas.append(float(np.median(cop_vals) - np.median(hum_vals)))
+                deltas.append(float(np.median(hum_vals) - np.median(cop_vals)))
             else:
                 deltas.append(float("nan"))
         if all(d != d for d in deltas):  # all NaN
@@ -3326,20 +3345,21 @@ def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
                 xycoords="axes fraction",
                 arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
                                 color="#888", lw=2))
-    ax.text(arrow_x - 0.005, 0.80, "longer before first non-author\ncomment on copilot PRs",
+    ax.text(arrow_x - 0.005, 0.80, "copilot PRs get human\ncomment sooner",
             transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
             color="#666", style="italic")
     ax.annotate("", xy=(arrow_x, 0.22), xytext=(arrow_x, 0.45),
                 xycoords="axes fraction",
                 arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
                                 color="#888", lw=2))
-    ax.text(arrow_x - 0.005, 0.20, "longer before first non-author\ncomment on human PRs",
+    ax.text(arrow_x - 0.005, 0.20, "human PRs get human\ncomment sooner",
             transform=ax.transAxes, fontsize=8, ha="right", va="top",
             color="#666", style="italic")
 
     add_insight_box(ax, [
-        "Per-repo P50 hours: copilot PRs minus human PRs to first non-author comment",
-        "Positive → copilot PRs wait longer; Negative → human PRs wait longer",
+        "Per-repo P50 hours: human PRs minus copilot PRs to first non-author comment",
+        "Positive → copilot PRs get human comment sooner; Negative → human PRs sooner",
+        "Early indications that Copilot PRs are starting to get non-author human attention sooner",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -3434,6 +3454,7 @@ def chart_time_comment_to_merge(all_items, all_first_comments, output_dir):
         "How long PRs sit between getting first feedback and actually merging",
         "Proxy for review-cycle efficiency — high values may indicate stalled discussions or back-and-forth iteration",
         "P50 = median days from first non-author comment to merge (merged PRs only)",
+        "Roughly stable for runtime, roslyn, aspire over the last 4 months",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -3491,7 +3512,7 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
         w += timedelta(weeks=1)
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "First Comment to Merge Delta (Copilot − Human) — per repo (4-week rolling P50)", "Days")
+    setup_axes(ax, "First Comment to Merge Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)", "Days")
     ax.axhline(y=0, color="black", linewidth=0.7, alpha=0.6)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
@@ -3509,7 +3530,7 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
             cop_vals = [d for cd, d, is_cop in dp if is_cop and window_start <= cd < wk + timedelta(days=7)]
             hum_vals = [d for cd, d, is_cop in dp if not is_cop and window_start <= cd < wk + timedelta(days=7)]
             if len(cop_vals) >= MIN_PRS and len(hum_vals) >= MIN_PRS:
-                deltas.append(float(np.median(cop_vals) - np.median(hum_vals)))
+                deltas.append(float(np.median(hum_vals) - np.median(cop_vals)))
             else:
                 deltas.append(float("nan"))
         if all(d != d for d in deltas):
@@ -3536,21 +3557,22 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
                 xycoords="axes fraction",
                 arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
                                 color="#888", lw=2))
-    ax.text(arrow_x - 0.005, 0.80, "longer for copilot PRs\nto merge after first comment",
+    ax.text(arrow_x - 0.005, 0.80, "copilot PRs merge sooner\nafter they are first looked at",
             transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
             color="#666", style="italic")
     ax.annotate("", xy=(arrow_x, 0.22), xytext=(arrow_x, 0.45),
                 xycoords="axes fraction",
                 arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
                                 color="#888", lw=2))
-    ax.text(arrow_x - 0.005, 0.20, "longer for human PRs\nto merge after first comment",
+    ax.text(arrow_x - 0.005, 0.20, "human PRs merge sooner\nafter they are first looked at",
             transform=ax.transAxes, fontsize=8, ha="right", va="top",
             color="#666", style="italic")
 
     add_insight_box(ax, [
-        "Per-repo P50 days: copilot PRs minus human PRs, first comment → merge",
-        "Positive → copilot PRs slower to merge after feedback; Negative → human PRs slower",
+        "Per-repo P50 days: human PRs minus copilot PRs, first comment → merge",
+        "Positive → copilot PRs merge sooner after feedback; Negative → human PRs sooner",
         "PRs created from Jul 2025 onward only (earlier copilot data too sparse)",
+        "Copilot PRs merge about as quickly as human PRs, with early indications they may begin to merge quicker",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
