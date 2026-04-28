@@ -259,7 +259,8 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
             if pr_number in existing:
                 continue
 
-            commenter = c.get("user", {}).get("login", "")
+            user_obj = c.get("user")
+            commenter = user_obj.get("login", "") if user_obj else ""
             created_at = c.get("created_at", "")
 
             info = pr_info.get(pr_number)
@@ -328,6 +329,169 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
     return new_first_comments
 
 
+def fetch_review_comments_for_repo(session, conn, repo, since_date):
+    """Fetch PR review comments (inline code review) using the bulk endpoint.
+    
+    This complements fetch_comments_for_repo which only gets issue-style comments.
+    PR review comments are the primary feedback mechanism and often arrive before
+    any issue-style comment.
+    
+    Updates pr_first_comment keeping the EARLIEST qualifying comment from either source.
+    """
+    owner, name = repo.split("/")
+    url = f"https://api.github.com/repos/{owner}/{name}/pulls/comments"
+
+    # Check progress for review comments (separate tracking)
+    row = conn.execute(
+        "SELECT last_since, last_comment_id FROM comment_fetch_progress WHERE repo = ?",
+        (repo + "/reviews",)
+    ).fetchone()
+
+    if row and row[0]:
+        since = row[0]
+        last_seen_id = row[1] or 0
+        print(f"  [review] Resuming from since={since}, last_id={last_seen_id}")
+    else:
+        since = since_date
+        last_seen_id = 0
+        print(f"  [review] Starting fresh from {since}")
+
+    pr_info = load_pr_authors(conn, repo)
+    print(f"  [review] Loaded {len(pr_info)} PR records for author matching")
+
+    # Load existing first comments so we can compare timestamps
+    existing_comments = {}
+    for r_repo, num, ts in conn.execute(
+        "SELECT repo, number, first_comment_at FROM pr_first_comment WHERE repo = ?",
+        (repo,)
+    ).fetchall():
+        existing_comments[num] = ts
+
+    params = {
+        "sort": "created",
+        "direction": "asc",
+        "since": since,
+        "per_page": 100,
+    }
+
+    page = 0
+    total_comments = 0
+    new_first = 0
+    updated_first = 0
+    batch_insert = []
+    batch_update = []
+
+    while not _shutdown:
+        page += 1
+        resp = fetch_page(session, url, params)
+        if resp is None:
+            break
+
+        comments = resp.json()
+        if not comments:
+            print(f"  [review] Done — no more comments.")
+            break
+
+        for c in comments:
+            comment_id = c["id"]
+            if comment_id <= last_seen_id:
+                continue
+
+            # Extract PR number from pull_request_url
+            pr_url = c.get("pull_request_url", "")
+            try:
+                pr_number = int(pr_url.rstrip("/").split("/")[-1])
+            except (ValueError, IndexError):
+                continue
+
+            user_obj = c.get("user")
+            commenter = user_obj.get("login", "") if user_obj else ""
+            created_at = c.get("created_at", "")
+
+            info = pr_info.get(pr_number)
+            if info is None:
+                continue
+
+            if is_qualifying_comment(commenter, info):
+                existing_ts = existing_comments.get(pr_number)
+                if existing_ts is None:
+                    # No existing comment — insert
+                    batch_insert.append((repo, pr_number, created_at, commenter))
+                    existing_comments[pr_number] = created_at
+                    new_first += 1
+                elif created_at < existing_ts:
+                    # This review comment is earlier — update
+                    batch_update.append((created_at, commenter, repo, pr_number))
+                    existing_comments[pr_number] = created_at
+                    updated_first += 1
+
+            last_seen_id = max(last_seen_id, comment_id)
+
+        total_comments += len(comments)
+
+        # Commit periodically
+        if (batch_insert or batch_update) and page % 10 == 0:
+            if batch_insert:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO pr_first_comment (repo, number, first_comment_at, commenter) "
+                    "VALUES (?, ?, ?, ?)", batch_insert
+                )
+            if batch_update:
+                conn.executemany(
+                    "UPDATE pr_first_comment SET first_comment_at = ?, commenter = ? "
+                    "WHERE repo = ? AND number = ?", batch_update
+                )
+            last_comment_ts = comments[-1].get("created_at", since)
+            conn.execute(
+                "INSERT OR REPLACE INTO comment_fetch_progress (repo, last_since, last_comment_id, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                (repo + "/reviews", last_comment_ts, last_seen_id,
+                 datetime.now(timezone.utc).isoformat())
+            )
+            conn.commit()
+            batch_insert = []
+            batch_update = []
+
+        if page % 20 == 0:
+            print(f"  [review] Page {page}: {total_comments} scanned, "
+                  f"{new_first} new + {updated_first} updated")
+
+        # Follow pagination
+        link = resp.headers.get("Link", "")
+        if 'rel="next"' not in link:
+            break
+        for part in link.split(","):
+            if 'rel="next"' in part:
+                next_url = part.split(";")[0].strip().strip("<>")
+                url = next_url
+                params = {}
+                break
+
+        time.sleep(REQUEST_DELAY)
+
+    # Final commit
+    if batch_insert:
+        conn.executemany(
+            "INSERT OR IGNORE INTO pr_first_comment (repo, number, first_comment_at, commenter) "
+            "VALUES (?, ?, ?, ?)", batch_insert
+        )
+    if batch_update:
+        conn.executemany(
+            "UPDATE pr_first_comment SET first_comment_at = ?, commenter = ? "
+            "WHERE repo = ? AND number = ?", batch_update
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO comment_fetch_progress (repo, last_since, last_comment_id, updated_at) "
+        "VALUES (?, ?, ?, ?)",
+        (repo + "/reviews", since, last_seen_id, datetime.now(timezone.utc).isoformat())
+    )
+    conn.commit()
+
+    print(f"  [review] Complete: {total_comments} scanned, "
+          f"{new_first} new + {updated_first} updated first-comments")
+    return new_first + updated_first
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch first comment timestamps for PRs")
     parser.add_argument("--db", default=DEFAULT_DB, help="Database path")
@@ -370,6 +534,19 @@ def main():
         print(f"  {repo}")
         print(f"{'='*60}")
         n = fetch_comments_for_repo(session, conn, repo, since_date)
+        total += n
+
+    # Second pass: PR review comments (inline code review)
+    print(f"\n\n{'#'*60}")
+    print(f"  PHASE 2: PR review comments (inline code review)")
+    print(f"{'#'*60}")
+    for repo in repos:
+        if _shutdown:
+            break
+        print(f"\n{'='*60}")
+        print(f"  {repo} [review comments]")
+        print(f"{'='*60}")
+        n = fetch_review_comments_for_repo(session, conn, repo, since_date)
         total += n
 
     print(f"\n{'='*60}")
