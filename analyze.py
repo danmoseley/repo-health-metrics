@@ -1991,7 +1991,7 @@ def chart_copilot_adoption(all_items, output_dir):
                 linewidth=2.5, alpha=0.9)
         ax.plot(all_weeks, assisted_vals, color="#3498db", label="Assisted (Co-authored-by trailer)",
                 linewidth=2.5, alpha=0.9)
-        ax.set_ylim(0, None)
+        ax.set_ylim(0, 200)
         ax.legend(loc="upper left", fontsize=10)
         add_direction_arrow(ax, "up")
         repos_str = ", ".join(get_short(r) for r in sorted(repos_with_coverage))
@@ -2095,16 +2095,6 @@ def chart_copilot_merge_success(all_items, output_dir):
     ax.plot(months, asst_rates, color="#9b59b6", label="Assisted (Co-authored-by)",
             linewidth=2.5, alpha=0.9, marker="^", markersize=5)
 
-    # Annotate sample sizes on the smaller-N lines (CCA + assisted)
-    for m, rate, n in zip(months, cca_rates, cca_ns):
-        if rate == rate and n > 0:
-            ax.annotate(f"n={n}", (m, rate), textcoords="offset points",
-                        xytext=(0, 10), fontsize=7, color="#c0392b", ha="center")
-    for m, rate, n in zip(months, asst_rates, asst_ns):
-        if rate == rate and n > 0:
-            ax.annotate(f"n={n}", (m, rate), textcoords="offset points",
-                        xytext=(0, -14), fontsize=7, color="#7d3c98", ha="center")
-
     ax.set_ylim(0, 109)
     ax.legend(loc="lower right", fontsize=11)
     add_insight_box(ax, [
@@ -2136,9 +2126,9 @@ def chart_copilot_time_to_merge(all_items, output_dir):
     items = all_items[repo]
 
     # Bucket by creation month, collect TTM values and total PR counts for censoring
-    monthly_ttm = defaultdict(lambda: {"cop": [], "hum": []})
-    monthly_resolved = defaultdict(lambda: {"cop": 0, "hum": 0})
-    monthly_total = defaultdict(lambda: {"cop": 0, "hum": 0})
+    monthly_ttm = defaultdict(lambda: {"cca": [], "asst": [], "hum": []})
+    monthly_resolved = defaultdict(lambda: {"cca": 0, "asst": 0, "hum": 0})
+    monthly_total = defaultdict(lambda: {"cca": 0, "asst": 0, "hum": 0})
     for item in items:
         if not item["is_pr"]:
             continue
@@ -2148,8 +2138,12 @@ def chart_copilot_time_to_merge(all_items, output_dir):
         cls = _classify_copilot(item)
         if cls == "unknown":
             continue
-        is_cop = cls in ("cca", "assisted")
-        key = "cop" if is_cop else "hum"
+        if cls == "cca":
+            key = "cca"
+        elif cls == "assisted":
+            key = "asst"
+        else:
+            key = "hum"
         month = cd.replace(day=1)
         monthly_total[month][key] += 1
         if item.get("merged_at"):
@@ -2170,55 +2164,68 @@ def chart_copilot_time_to_merge(all_items, output_dir):
         months = months[:-1]
     # Drop months where < 90% of PRs are resolved (merged or closed) to avoid survivorship bias
     MIN_RESOLUTION_RATE = 0.90
+    def _resolved(d):
+        return d["cca"] + d["asst"] + d["hum"]
     months = [m for m in months if (
-        (monthly_resolved[m]["cop"] + monthly_resolved[m]["hum"]) /
-        max(1, monthly_total[m]["cop"] + monthly_total[m]["hum"])
+        _resolved(monthly_resolved[m]) / max(1, _resolved(monthly_total[m]))
     ) >= MIN_RESOLUTION_RATE]
     if not months:
         print("  (skipping copilot TTM trend — no data)")
         return
 
     import numpy as np
-    cop_p50, hum_p50 = [], []
-    cop_p75, hum_p75 = [], []
-    cop_ns, hum_ns = [], []
+    cca_p50, asst_p50, hum_p50 = [], [], []
+    cca_ns, asst_ns, hum_ns = [], [], []
+    # Use a lower MIN for the smaller-N copilot lines so they stay visible when data is thin
+    MIN_CCA_ASST = 3
     for m in months:
         d = monthly_ttm[m]
-        for key, p50_list, p75_list, n_list in [
-            ("cop", cop_p50, cop_p75, cop_ns),
-            ("hum", hum_p50, hum_p75, hum_ns),
+        for key, p50_list, n_list, min_n in [
+            ("cca", cca_p50, cca_ns, MIN_CCA_ASST),
+            ("asst", asst_p50, asst_ns, MIN_CCA_ASST),
+            ("hum", hum_p50, hum_ns, MIN_MERGED_MONTH),
         ]:
             vals = sorted(d[key])
             n_list.append(len(vals))
-            if len(vals) >= MIN_MERGED_MONTH:
+            if len(vals) >= min_n:
                 p50_list.append(float(np.median(vals)))
-                p75_list.append(float(np.percentile(vals, 75)))
             else:
                 p50_list.append(float("nan"))
-                p75_list.append(float("nan"))
 
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
     # Override default year-based ticks — our range is ~12 months
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
 
-    ax.plot(months, cop_p50, color="#e74c3c", label="Copilot (CCA + assisted) p50",
-            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
-    ax.fill_between(months, cop_p50, cop_p75, color="#e74c3c", alpha=0.15, label="Copilot p50–p75")
     ax.plot(months, hum_p50, color="#3498db", label="Human p50",
             linewidth=2.5, alpha=0.9, marker="s", markersize=4)
-    ax.fill_between(months, hum_p50, hum_p75, color="#3498db", alpha=0.15, label="Human p50–p75")
+    ax.plot(months, cca_p50, color="#e74c3c", label="CCA (bot-authored) p50",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.plot(months, asst_p50, color="#9b59b6", label="Assisted (Co-authored-by) p50",
+            linewidth=2.5, alpha=0.9, marker="^", markersize=5)
+
+    # Sample-size annotations on the smaller-N lines
+    for m, p, n in zip(months, cca_p50, cca_ns):
+        if p == p and n > 0:
+            ax.annotate(f"n={n}", (m, p), textcoords="offset points",
+                        xytext=(0, 10), fontsize=7, color="#c0392b", ha="center")
+    for m, p, n in zip(months, asst_p50, asst_ns):
+        if p == p and n > 0:
+            ax.annotate(f"n={n}", (m, p), textcoords="offset points",
+                        xytext=(0, -14), fontsize=7, color="#7d3c98", ha="center")
 
     ax.set_ylim(0, None)
     ax.legend(loc="upper left", fontsize=10)
     add_insight_box(ax, [
         "Each point = median TTM of PRs created that month (merged PRs only)",
         "Months with low resolution rate excluded to avoid survivorship bias",
-        "TTM broadly similar — the difference is merge rate, not speed",
-        "Shaded region = 50th to 75th percentile spread",
+        "CCA = bot-authored; Assisted = human + Co-authored-by trailer; Human = no trailer",
+        "Min sample size: 3 PRs for CCA/Assisted (small populations); 10 for Human",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
