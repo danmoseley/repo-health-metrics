@@ -20,7 +20,7 @@ Usage:
 import sqlite3
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from collections import defaultdict
 
@@ -29,7 +29,7 @@ try:
     matplotlib.use("Agg")  # non-interactive backend
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
-    from matplotlib.ticker import FuncFormatter
+    from matplotlib.ticker import FuncFormatter, MaxNLocator, MultipleLocator
     plt.rcParams['mathtext.fontset'] = 'dejavusans'
 except ImportError:
     print("ERROR: matplotlib is required. Install with: pip install matplotlib")
@@ -46,6 +46,7 @@ REPO_COLORS = {
     "dotnet/aspire": "#4CAF50",    # green (transferred to microsoft/aspire)
     "microsoft/aspire": "#4CAF50", # green
     "microsoft/vscode": "#007ACC", # VS Code blue
+    "microsoft/vcpkg": "#6A1B9A",  # deep purple
     "rust-lang/rust": "#B7410E",   # rust red-brown
     "golang/go": "#00897B",        # teal
 }
@@ -57,6 +58,7 @@ REPO_SHORT = {
     "dotnet/aspire": "aspire",
     "microsoft/aspire": "aspire",
     "microsoft/vscode": "vscode",
+    "microsoft/vcpkg": "vcpkg",
     "rust-lang/rust": "rust",
     "golang/go": "go",
 }
@@ -498,10 +500,11 @@ def label_line_ends(ax, lines_info):
     for dates, values, name, color in lines_info:
         if not dates or not values:
             continue
-        # Use the last non-None value
+        # Use the last non-None, non-NaN value
         for i in range(len(values) - 1, -1, -1):
-            if values[i] is not None:
-                endpoints.append((dates[i], values[i], name, color))
+            v = values[i]
+            if v is not None and v == v:  # NaN != NaN
+                endpoints.append((dates[i], v, name, color))
                 break
 
     if not endpoints:
@@ -530,9 +533,60 @@ def label_line_ends(ax, lines_info):
                     annotation_clip=False)
 
 
+_CHART_REGISTRY = {}  # hash -> title
+
+
+def _chart_id(title):
+    """Generate a stable 7-char hex ID from the chart title."""
+    import hashlib
+    h = hashlib.sha1(title.encode()).hexdigest()[:7]
+    _CHART_REGISTRY[h] = title
+    return h
+
+
+def _data_date():
+    """Return the last-modified date of the DB file as a 'YYYY-MM-DD' string."""
+    import os
+    # Try common locations relative to the script and cwd
+    for candidate in [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "pr-dashboard.db"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "pr-dashboard.db"),
+        "pr-dashboard.db",
+    ]:
+        if os.path.exists(candidate):
+            mtime = os.path.getmtime(candidate)
+            return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+    return "?"
+
+
+def _stamp_chart(ax, title):
+    """Add chart ID + data date outside axes, bottom-left of the figure.
+    Idempotent per figure: subsequent calls on additional axes are no-ops
+    so multi-axes figures aren't stamped multiple times in the same spot."""
+    label = f"{_chart_id(title)}  {_data_date()}"
+    fig = ax.get_figure()
+    if getattr(fig, "_chart_stamped", False):
+        return
+    fig._chart_stamped = True
+    fig.text(0.01, 0.005, label, fontsize=7, color="black", va="bottom", ha="left",
+             fontfamily="monospace")
+
+
+def write_chart_registry(output_dir):
+    """Write the hash->title registry to a TSV file alongside the charts."""
+    import os
+    path = os.path.join(output_dir, "chart_index.tsv")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("hash\ttitle\n")
+        for h in sorted(_CHART_REGISTRY):
+            f.write(f"{h}\t{_CHART_REGISTRY[h]}\n")
+    print(f"  {path}")
+
+
 def setup_axes(ax, title, ylabel):
     ax.set_title(title, fontsize=13, fontweight="bold", pad=10)
     ax.set_ylabel(ylabel, fontsize=10)
+    _stamp_chart(ax, title)
     # Major ticks on Jan 1 (year labels + grid lines), minor ticks quarterly
     ax.xaxis.set_major_locator(mdates.YearLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
@@ -758,9 +812,9 @@ def chart_net_flow_comparison(all_series, output_dir):
         visible_data.append(smoothed)
         line_ends.append((series["weeks"], smoothed, get_short(repo), get_color(repo)))
 
-    # Fixed symmetric range — shows the interesting variation without extreme spikes
-    ax.set_ylim(-100, 100)
-    ax.annotate("Y-axis clamped to [-100, +100] to exclude bulk closure spikes",
+    # Fixed range — shows the interesting variation without extreme spikes
+    ax.set_ylim(-75, 100)
+    ax.annotate("Y-axis clamped to [-75, +100] to exclude bulk closure spikes",
                 xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
                 color="#888888", style="italic")
     ax.legend(loc="upper left", fontsize=10)
@@ -788,6 +842,52 @@ def chart_net_flow_comparison(all_series, output_dir):
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "net_issue_flow_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_net_pr_flow_comparison(all_series, output_dir):
+    """Net PR flow (opened - merged per week), full history, smoothed, Y-axis clamped."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Net PR Flow (Opened − Merged per Week, 2-year avg)",
+               "Net PRs / Week")
+
+    ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
+
+    visible_data = []
+    line_ends = []
+    for repo, series in all_series.items():
+        if not series or repo in GERRIT_REPOS:
+            continue
+        # Opened − merged (per user request); closures-without-merge are NOT subtracted here
+        net = [o - m for o, m in zip(series["pr_opened"], series["pr_merged"])]
+        smoothed = smooth(net, window=104)
+        alpha = 0.4 if repo == "microsoft/vscode" else 0.85
+        lw = 1.2 if repo == "microsoft/vscode" else 1.5
+        ax.plot(series["weeks"], smoothed,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=lw, alpha=alpha)
+        visible_data.append(smoothed)
+        line_ends.append((series["weeks"], smoothed, get_short(repo), get_color(repo)))
+
+    # Y-axis tuned to typical variation; positive = backlog growing
+    ax.set_ylim(-20, 100)
+    ax.annotate("Y-axis clamped to [-20, +100]; positive = backlog growing",
+                xy=(0.02, 0.02), xycoords="axes fraction", fontsize=8,
+                color="#888888", style="italic")
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "Net = opened − merged (PRs closed without merging are NOT subtracted)",
+        "Negative = repo is merging at least as fast as new PRs arrive",
+        "Sustained positive = open-PR list growing if closures-without-merge stay flat",
+        "vcpkg's positive trend reflects bot-managed merge queue + many stale auto-closed PRs",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "net_pr_flow_comparison.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -1177,7 +1277,7 @@ def chart_active_maintainers(all_maint, output_dir):
 def chart_prs_per_maintainer(all_maint, output_dir):
     """PRs merged per active maintainer per month. Excludes Gerrit and bot-merger repos."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "PRs Merged per Active Maintainer (Monthly, 3-month avg)",
+    setup_axes(ax, "PRs Merged per Active Maintainer (Monthly, 4-month avg)",
                "PRs / Maintainer / Month")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
 
@@ -1187,7 +1287,7 @@ def chart_prs_per_maintainer(all_maint, output_dir):
     for repo, (months, _, prs_per, _) in all_maint.items():
         if not months or repo in excluded:
             continue
-        s = smooth(prs_per, 3)
+        s = smooth(prs_per, 4)
         ax.plot(months, s, color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
         visible_data.append(s)
@@ -1773,7 +1873,7 @@ def chart_copilot_adoption(all_items, output_dir):
                 linewidth=2, alpha=0.85)
         line_ends.append((weeks, smoothed, get_short(repo), get_color(repo)))
 
-    ax.set_ylim(0, None)
+    ax.set_ylim(0, 100)
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
@@ -1863,6 +1963,74 @@ def chart_copilot_adoption(all_items, output_dir):
     plt.close(fig)
     print(f"  {path}")
 
+    # --- Chart 3: CCA vs Assisted aggregated across all repos ---
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot PRs by Type — All Repos Aggregated (4-week avg)", "PRs / week")
+
+    # Track per-week trailer-check coverage so we can drop weeks where
+    # the backfill hasn't caught up (otherwise Assisted is artifactually low).
+    cca_total = defaultdict(int)
+    assisted_total = defaultdict(int)
+    week_total = defaultdict(int)     # all PRs in week (including unknown)
+    week_checked = defaultdict(int)   # PRs in week with copilot_trailer set
+
+    aggregate_repos = [r for r in repos_with_coverage if r not in GERRIT_REPOS]
+
+    for repo in aggregate_repos:
+        items = all_items.get(repo) or []
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd:
+                continue
+            week = cd - timedelta(days=cd.weekday())
+            week_total[week] += 1
+            if item.get("copilot_trailer") is not None:
+                week_checked[week] += 1
+            cls = _classify_copilot(item)
+            if cls == "cca":
+                cca_total[week] += 1
+            elif cls == "assisted":
+                assisted_total[week] += 1
+
+    # Drop weeks where < 90% of PRs have been trailer-checked (data lag censoring)
+    MIN_WEEK_COVERAGE = 0.90
+    all_weeks = sorted(set(list(cca_total.keys()) + list(assisted_total.keys())))
+    all_weeks = [w for w in all_weeks if w >= coverage_cutoff]
+    if common_end_week:
+        all_weeks = [w for w in all_weeks if w <= common_end_week]
+    all_weeks = [w for w in all_weeks
+                 if week_total.get(w, 0) > 0 and
+                 week_checked[w] / week_total[w] >= MIN_WEEK_COVERAGE]
+    if all_weeks and (today - all_weeks[-1]).days < 7:
+        all_weeks = all_weeks[:-1]
+
+    if all_weeks:
+        cca_vals = smooth([cca_total.get(w, 0) for w in all_weeks], 4)
+        assisted_vals = smooth([assisted_total.get(w, 0) for w in all_weeks], 4)
+        ax.plot(all_weeks, cca_vals, color="#e74c3c", label="CCA (bot-authored)",
+                linewidth=2.5, alpha=0.9)
+        ax.plot(all_weeks, assisted_vals, color="#3498db", label="Assisted (Co-authored-by trailer)",
+                linewidth=2.5, alpha=0.9)
+        ax.set_ylim(0, 200)
+        # Use the actual data range for x-axis (avoid massive forward padding)
+        ax.set_xlim(all_weeks[0], all_weeks[-1])
+        ax.legend(loc="upper left", fontsize=10)
+        add_direction_arrow(ax, "up")
+        repos_str = ", ".join(get_short(r) for r in sorted(aggregate_repos))
+        add_insight_box(ax, [
+            f"Total weekly PR count across {len(aggregate_repos)} repos with sufficient trailer coverage",
+            "Useful for spotting whether overall Copilot usage is dominated by CCA or human-assisted",
+            f"Repos: {repos_str} (Gerrit-mirrored repos and repos with <80% trailer coverage excluded)",
+            "Weeks with <90% per-week trailer-check coverage dropped (data-collection lag)",
+        ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_by_type_aggregate.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
 
 def chart_copilot_merge_success(all_items, output_dir):
     """Line chart: monthly merge rate for Copilot vs human PRs (runtime only)."""
@@ -1880,7 +2048,8 @@ def chart_copilot_merge_success(all_items, output_dir):
 
     # Bucket by creation month, split Copilot (CCA+assisted) vs Human
     # Track total PRs (including open) to compute resolution rate for censoring check
-    monthly = defaultdict(lambda: {"cop_m": 0, "cop_r": 0, "cop_open": 0,
+    monthly = defaultdict(lambda: {"cca_m": 0, "cca_r": 0, "cca_open": 0,
+                                    "asst_m": 0, "asst_r": 0, "asst_open": 0,
                                     "hum_m": 0, "hum_r": 0, "hum_open": 0})
     for item in items:
         if not item["is_pr"]:
@@ -1891,8 +2060,12 @@ def chart_copilot_merge_success(all_items, output_dir):
         cls = _classify_copilot(item)
         if cls == "unknown":
             continue
-        is_cop = cls in ("cca", "assisted")
-        pfx = "cop" if is_cop else "hum"
+        if cls == "cca":
+            pfx = "cca"
+        elif cls == "assisted":
+            pfx = "asst"
+        else:
+            pfx = "hum"
         month = cd.replace(day=1)
         if item.get("merged_at"):
             monthly[month][pfx + "_m"] += 1
@@ -1906,26 +2079,29 @@ def chart_copilot_merge_success(all_items, output_dir):
     if months and (today - months[-1]).days < 14:
         months = months[:-1]
     # Drop months where < 90% of PRs are resolved (right-censoring bias)
-    MIN_RESOLUTION_RATE = 0.90
-    months = [m for m in months if (
-        (monthly[m]["cop_m"] + monthly[m]["cop_r"] + monthly[m]["hum_m"] + monthly[m]["hum_r"]) /
-        max(1, monthly[m]["cop_m"] + monthly[m]["cop_r"] + monthly[m]["cop_open"] +
-            monthly[m]["hum_m"] + monthly[m]["hum_r"] + monthly[m]["hum_open"])
-    ) >= MIN_RESOLUTION_RATE]
+    MIN_RESOLUTION_RATE = 0.75
+    def _resolved(d):
+        return d["cca_m"] + d["cca_r"] + d["asst_m"] + d["asst_r"] + d["hum_m"] + d["hum_r"]
+    def _all(d):
+        return _resolved(d) + d["cca_open"] + d["asst_open"] + d["hum_open"]
+    months = [m for m in months if _resolved(monthly[m]) / max(1, _all(monthly[m])) >= MIN_RESOLUTION_RATE]
     if not months:
         print("  (skipping copilot merge rate trend — no data)")
         return
 
-    cop_rates, hum_rates = [], []
-    cop_ns, hum_ns = [], []
+    cca_rates, asst_rates, hum_rates = [], [], []
+    cca_ns, asst_ns, hum_ns = [], [], []
     for m in months:
         d = monthly[m]
-        cr = d["cop_m"] + d["cop_r"]
-        hr = d["hum_m"] + d["hum_r"]
-        cop_rates.append(100 * d["cop_m"] / cr if cr >= MIN_RESOLVED_MONTH else float("nan"))
-        hum_rates.append(100 * d["hum_m"] / hr if hr >= MIN_RESOLVED_MONTH else float("nan"))
-        cop_ns.append(cr)
-        hum_ns.append(hr)
+        cca_r = d["cca_m"] + d["cca_r"]
+        asst_r = d["asst_m"] + d["asst_r"]
+        hum_r = d["hum_m"] + d["hum_r"]
+        cca_rates.append(100 * d["cca_m"] / cca_r if cca_r >= MIN_RESOLVED_MONTH else float("nan"))
+        asst_rates.append(100 * d["asst_m"] / asst_r if asst_r >= MIN_RESOLVED_MONTH else float("nan"))
+        hum_rates.append(100 * d["hum_m"] / hum_r if hum_r >= MIN_RESOLVED_MONTH else float("nan"))
+        cca_ns.append(cca_r)
+        asst_ns.append(asst_r)
+        hum_ns.append(hum_r)
 
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "PR Merge Rate: Copilot vs Human — dotnet/runtime (Monthly)", "Merge Rate (%)")
@@ -1936,23 +2112,19 @@ def chart_copilot_merge_success(all_items, output_dir):
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
 
-    ax.plot(months, cop_rates, color="#e74c3c", label="Copilot (CCA + assisted)",
-            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
-    ax.plot(months, hum_rates, color="#3498db", label="Human (no trailer)",
+    ax.plot(months, hum_rates, color="#3498db", label="Human",
             linewidth=2.5, alpha=0.9, marker="s", markersize=4)
-
-    # Annotate sample sizes on Copilot line
-    for m, rate, n in zip(months, cop_rates, cop_ns):
-        if rate == rate and n > 0:  # not NaN
-            ax.annotate(f"n={n}", (m, rate), textcoords="offset points",
-                        xytext=(0, 10), fontsize=7, color="#999", ha="center")
+    ax.plot(months, cca_rates, color="#e74c3c", label="CCA (bot-authored)",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.plot(months, asst_rates, color="#9b59b6", label="Assisted (Co-authored-by)",
+            linewidth=2.5, alpha=0.9, marker="^", markersize=5)
 
     ax.set_ylim(0, 109)
     ax.legend(loc="lower right", fontsize=11)
     add_insight_box(ax, [
         "Each point = merge rate of PRs created that month (merged / resolved)",
-        "Months with <90% resolution rate excluded to avoid censoring bias",
-        "Copilot merge rate increased over the period",
+        "Months with <75% resolution rate excluded; recent months may show inflated merge rates as still-open PRs eventually merge or close to avoid censoring bias",
+        "CCA = bot-authored; Assisted = human + Co-authored-by trailer; Human = no trailer",
         "Trailer is a lower-bound proxy — not all Copilot use leaves a trailer",
     ])
     _pad_date_xlim(fig)
@@ -1978,9 +2150,9 @@ def chart_copilot_time_to_merge(all_items, output_dir):
     items = all_items[repo]
 
     # Bucket by creation month, collect TTM values and total PR counts for censoring
-    monthly_ttm = defaultdict(lambda: {"cop": [], "hum": []})
-    monthly_resolved = defaultdict(lambda: {"cop": 0, "hum": 0})
-    monthly_total = defaultdict(lambda: {"cop": 0, "hum": 0})
+    monthly_ttm = defaultdict(lambda: {"cca": [], "asst": [], "hum": []})
+    monthly_resolved = defaultdict(lambda: {"cca": 0, "asst": 0, "hum": 0})
+    monthly_total = defaultdict(lambda: {"cca": 0, "asst": 0, "hum": 0})
     for item in items:
         if not item["is_pr"]:
             continue
@@ -1990,16 +2162,24 @@ def chart_copilot_time_to_merge(all_items, output_dir):
         cls = _classify_copilot(item)
         if cls == "unknown":
             continue
-        is_cop = cls in ("cca", "assisted")
-        key = "cop" if is_cop else "hum"
+        if cls == "cca":
+            key = "cca"
+        elif cls == "assisted":
+            key = "asst"
+        else:
+            key = "hum"
         month = cd.replace(day=1)
         monthly_total[month][key] += 1
         if item.get("merged_at"):
             monthly_resolved[month][key] += 1
-            md = parse_date(item["merged_at"])
-            if md:
-                days = (md - cd).days + (md - cd).seconds / 86400
-                monthly_ttm[month][key].append(days)
+            try:
+                created_dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+                merged_dt = datetime.fromisoformat(item["merged_at"].replace("Z", "+00:00"))
+                days = (merged_dt - created_dt).total_seconds() / 86400
+                if days >= 0:
+                    monthly_ttm[month][key].append(days)
+            except (ValueError, AttributeError):
+                pass
         elif item.get("state") == "CLOSED":
             monthly_resolved[month][key] += 1
 
@@ -2007,56 +2187,59 @@ def chart_copilot_time_to_merge(all_items, output_dir):
     if months and (today - months[-1]).days < 14:
         months = months[:-1]
     # Drop months where < 90% of PRs are resolved (merged or closed) to avoid survivorship bias
-    MIN_RESOLUTION_RATE = 0.90
+    MIN_RESOLUTION_RATE = 0.75
+    def _resolved(d):
+        return d["cca"] + d["asst"] + d["hum"]
     months = [m for m in months if (
-        (monthly_resolved[m]["cop"] + monthly_resolved[m]["hum"]) /
-        max(1, monthly_total[m]["cop"] + monthly_total[m]["hum"])
+        _resolved(monthly_resolved[m]) / max(1, _resolved(monthly_total[m]))
     ) >= MIN_RESOLUTION_RATE]
     if not months:
         print("  (skipping copilot TTM trend — no data)")
         return
 
     import numpy as np
-    cop_p50, hum_p50 = [], []
-    cop_p75, hum_p75 = [], []
-    cop_ns, hum_ns = [], []
+    cca_p50, asst_p50, hum_p50 = [], [], []
+    cca_ns, asst_ns, hum_ns = [], [], []
+    # Use a lower MIN for the smaller-N copilot lines so they stay visible when data is thin
+    MIN_CCA_ASST = 3
     for m in months:
         d = monthly_ttm[m]
-        for key, p50_list, p75_list, n_list in [
-            ("cop", cop_p50, cop_p75, cop_ns),
-            ("hum", hum_p50, hum_p75, hum_ns),
+        for key, p50_list, n_list, min_n in [
+            ("cca", cca_p50, cca_ns, MIN_CCA_ASST),
+            ("asst", asst_p50, asst_ns, MIN_CCA_ASST),
+            ("hum", hum_p50, hum_ns, MIN_MERGED_MONTH),
         ]:
             vals = sorted(d[key])
             n_list.append(len(vals))
-            if len(vals) >= MIN_MERGED_MONTH:
+            if len(vals) >= min_n:
                 p50_list.append(float(np.median(vals)))
-                p75_list.append(float(np.percentile(vals, 75)))
             else:
                 p50_list.append(float("nan"))
-                p75_list.append(float("nan"))
 
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
     # Override default year-based ticks — our range is ~12 months
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
 
-    ax.plot(months, cop_p50, color="#e74c3c", label="Copilot (CCA + assisted) p50",
-            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
-    ax.fill_between(months, cop_p50, cop_p75, color="#e74c3c", alpha=0.15, label="Copilot p50–p75")
     ax.plot(months, hum_p50, color="#3498db", label="Human p50",
             linewidth=2.5, alpha=0.9, marker="s", markersize=4)
-    ax.fill_between(months, hum_p50, hum_p75, color="#3498db", alpha=0.15, label="Human p50–p75")
+    ax.plot(months, cca_p50, color="#e74c3c", label="CCA (bot-authored) p50",
+            linewidth=2.5, alpha=0.9, marker="o", markersize=5)
+    ax.plot(months, asst_p50, color="#9b59b6", label="Assisted (Co-authored-by) p50",
+            linewidth=2.5, alpha=0.9, marker="^", markersize=5)
 
     ax.set_ylim(0, None)
-    ax.legend(loc="upper right", fontsize=10)
+    ax.legend(loc="upper left", fontsize=10)
     add_insight_box(ax, [
         "Each point = median TTM of PRs created that month (merged PRs only)",
-        "Months with low resolution rate excluded to avoid survivorship bias",
-        "TTM broadly similar — the difference is merge rate, not speed",
-        "Shaded region = 50th to 75th percentile spread",
+        "Months with <75% resolution rate excluded; recent months may be slightly biased as still-open PRs continue to resolve",
+        "CCA = bot-authored; Assisted = human + Co-authored-by trailer; Human = no trailer",
+        "Min sample size: 3 PRs for CCA/Assisted (small populations); 10 for Human",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
@@ -2384,6 +2567,7 @@ def chart_community_pareto(all_items, output_dir):
     import numpy as np
     fig, ax = plt.subplots(figsize=(14, 7))
     ax.set_title("Community PR Concentration", fontsize=14, fontweight="bold", pad=12)
+    _stamp_chart(ax, "Community PR Concentration")
     ax.set_xlabel("Cumulative % of Community Authors (ranked by PR count)", fontsize=10)
     ax.set_ylabel("Cumulative % of Merged PRs", fontsize=10)
     ax.grid(True, alpha=0.3)
@@ -2770,6 +2954,624 @@ def chart_gini_over_time(all_items, output_dir):
     print(f"  {path}")
 
 
+# ── Zoomed Charts (120-day x-axis) ──────────────────────────────────────────
+
+
+def chart_pr_merge_rate_zoomed(all_items, output_dir):
+    """PR merge rate over last 120 days, daily granularity with 7-day rolling sum."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PR Merge Rate — last 4 months (7-day trailing sum)", "PRs Merged / Week (7-day rolling sum)")
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=120)
+    # Drop today (incomplete) to avoid a false trailing dip
+    last_day = today - timedelta(days=1)
+    # Need 6 days of pre-window history so the first plotted point has a full 7-day window
+    fetch_start = cutoff - timedelta(days=6)
+
+    visible_data = []
+    line_ends = []
+    for repo, items in all_items.items():
+        if not items or repo in GERRIT_REPOS:
+            continue
+        # Daily merged counts within the (extended) window
+        daily = defaultdict(int)
+        for it in items:
+            if not it.get("is_pr"):
+                continue
+            md = parse_date(it.get("merged_at"))
+            if md and fetch_start <= md <= last_day:
+                daily[md] += 1
+        if not daily:
+            continue
+        # Build daily series and compute 7-day trailing sum at each day in [cutoff, last_day]
+        days = []
+        rolling = []
+        d = cutoff
+        while d <= last_day:
+            s = sum(daily.get(d - timedelta(days=k), 0) for k in range(7))
+            days.append(d)
+            rolling.append(s)
+            d += timedelta(days=1)
+        if not any(rolling):
+            continue
+        ax.plot(days, rolling,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(rolling)
+        line_ends.append((days, rolling, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
+    ax.set_ylim(ymin, max(ymax, 50))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
+    add_insight_box(ax, [
+        "Zoomed view of the long-term merge rate chart — last 4 months at daily resolution",
+        "Useful for spotting recent dips/spikes (releases, on-call rotations, holiday slowdowns)",
+        "Each point = PRs merged in the trailing 7 days, evaluated daily",
+        "vscode, rust, runtime, vcpkg, roslyn relatively flat; maui and aspire trending down (−73% and −42% from peak)",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pr_merge_rate_zoomed.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
+    """Net PR Flow (Opened - Merged) over last 120 days, daily 7-day rolling sum."""
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=120)
+    last_day = today - timedelta(days=1)
+    fetch_start = cutoff - timedelta(days=6)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Net PR Flow — last 4 months (7-day trailing sum)",
+               "Opened − Merged / Week (7-day rolling sum)")
+
+    ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
+
+    visible_data = []
+    line_ends = []
+    for repo, items in all_items.items():
+        if not items or repo in GERRIT_REPOS:
+            continue
+        opened = defaultdict(int)
+        merged = defaultdict(int)
+        for it in items:
+            if not it.get("is_pr"):
+                continue
+            cd = parse_date(it.get("created_at"))
+            if cd and fetch_start <= cd <= last_day:
+                opened[cd] += 1
+            md = parse_date(it.get("merged_at"))
+            if md and fetch_start <= md <= last_day:
+                merged[md] += 1
+        if not opened and not merged:
+            continue
+        days, rolling = [], []
+        d = cutoff
+        while d <= last_day:
+            o = sum(opened.get(d - timedelta(days=k), 0) for k in range(7))
+            m = sum(merged.get(d - timedelta(days=k), 0) for k in range(7))
+            days.append(d)
+            rolling.append(o - m)
+            d += timedelta(days=1)
+        ax.plot(days, rolling,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(rolling)
+        line_ends.append((days, rolling, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ax.set_ylim(-100, 250)
+    ax.yaxis.set_major_locator(MultipleLocator(50))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "Zoomed view of net PR flow — last 4 months at daily resolution",
+        "Spikes upward = PRs piling up; downward = team draining backlog",
+        "Each point = (opened − merged) in the trailing 7 days, evaluated daily",
+        "vscode and rust show large positive swings (backlog churn); maui swings sharply both directions",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pr_opened_vs_merged_zoomed.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+# ── Comment-Based Charts ────────────────────────────────────────────────────
+
+# Repos to include in comment-based charts
+COMMENT_CHART_REPOS = (
+    "dotnet/runtime", "dotnet/roslyn", "dotnet/maui",
+    "microsoft/aspire",
+)
+
+
+def load_first_comments(conn, repo):
+    """Load first-comment data from pr_first_comment table.
+    Returns dict: PR number -> {'first_comment_at': date, 'first_comment_dt': datetime, 'commenter': str}
+    """
+    try:
+        rows = conn.execute(
+            "SELECT number, first_comment_at, commenter FROM pr_first_comment WHERE repo = ?",
+            (repo,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    result = {}
+    for number, fc_at, commenter in rows:
+        d = parse_date(fc_at)
+        dt = None
+        try:
+            if fc_at:
+                dt = datetime.fromisoformat(fc_at.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            dt = None
+        if d:
+            result[number] = {"first_comment_at": d, "first_comment_dt": dt, "commenter": commenter}
+    return result
+
+
+def chart_time_to_comment(all_items, all_first_comments, output_dir):
+    """P50 time-to-first-comment in HOURS, weekly with 4-week rolling window, multi-repo, 12-month x-axis."""
+    from statistics import median
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time to First Comment — P50 (weekly, 4-week rolling)", "Hours")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    for repo in COMMENT_CHART_REPOS:
+        items = all_items.get(repo)
+        fc_map = all_first_comments.get(repo)
+        if not items or not fc_map:
+            continue
+        # Bucket TTC values (in hours, sub-hour precision) by PR-creation week
+        ttc_by_week = defaultdict(list)
+        for item in items:
+            if not item.get("is_pr"):
+                continue
+            fc = fc_map.get(item["number"])
+            if not fc:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd:
+                continue
+            fc_dt = fc.get("first_comment_dt")
+            try:
+                created_dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+            if not fc_dt:
+                continue
+            # Skip comments that arrived after merge (not review latency)
+            try:
+                md_dt = datetime.fromisoformat(item["merged_at"].replace("Z", "+00:00")) if item.get("merged_at") else None
+            except (ValueError, AttributeError):
+                md_dt = None
+            if md_dt and fc_dt > md_dt:
+                continue
+            hours = (fc_dt - created_dt).total_seconds() / 3600
+            if hours < 0:
+                continue
+            ttc_by_week[week_start(cd)].append(hours)
+        if not ttc_by_week:
+            continue
+        # Evaluate weekly with 4-week trailing window
+        weeks_x, p50s = [], []
+        w = max(min(ttc_by_week.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            window_vals = []
+            for k in range(4):
+                window_vals.extend(ttc_by_week.get(w - timedelta(weeks=k), []))
+            if len(window_vals) >= 3:
+                weeks_x.append(w)
+                p50s.append(median(window_vals))
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, p50s,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(p50s)
+        line_ends.append((weeks_x, p50s, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping time-to-comment — no comment data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "How quickly a PR gets human attention — proxy for review responsiveness",
+        "P50 = median hours from PR creation to first non-author, non-bot comment",
+        "Lower = more responsive review culture; spikes often align with holidays/releases",
+        "Includes all PRs (not just merged); excludes post-merge comments",
+        "Review responsiveness roughly stable over last 4 months for aspire and runtime",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "time_to_comment.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_copilot_time_to_comment(all_items, all_first_comments, output_dir):
+    """Per-repo P50 delta (Copilot − Human) for hours-to-first-comment, weekly 4-week rolling."""
+    import numpy as np
+    today = datetime.now().date()
+    coverage_cutoff = today - timedelta(days=365)
+    WINDOW_DAYS = 28
+    MIN_PRS = 3  # required in BOTH cohorts before computing delta
+
+    # Per-repo data: repo -> list of (create_date, hours, is_copilot)
+    per_repo = {r: [] for r in COMMENT_CHART_REPOS}
+    for repo in COMMENT_CHART_REPOS:
+        items = all_items.get(repo)
+        fc_map = all_first_comments.get(repo)
+        if not items or not fc_map:
+            continue
+        for item in items:
+            if not item["is_pr"]:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd or cd < coverage_cutoff:
+                continue
+            cls = _classify_copilot(item)
+            if cls == "unknown":
+                continue
+            fc = fc_map.get(item["number"])
+            if not fc:
+                continue
+            fc_dt = fc.get("first_comment_dt")
+            try:
+                created_dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+            if not fc_dt:
+                continue
+            try:
+                md_dt = datetime.fromisoformat(item["merged_at"].replace("Z", "+00:00")) if item.get("merged_at") else None
+            except (ValueError, AttributeError):
+                md_dt = None
+            if md_dt and fc_dt > md_dt:
+                continue
+            hours = (fc_dt - created_dt).total_seconds() / 3600
+            if hours < 0:
+                continue
+            per_repo[repo].append((cd, hours, cls in ("cca", "assisted")))
+
+    # Weekly evaluation points
+    weeks = []
+    w = week_start(coverage_cutoff) + timedelta(weeks=4)
+    last_full = week_start(today) - timedelta(weeks=1)
+    while w <= last_full:
+        weeks.append(w)
+        w += timedelta(weeks=1)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time to First Comment Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)", "Hours")
+    ax.axhline(y=0, color="black", linewidth=0.7, alpha=0.6)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+
+    visible_data = []
+    line_ends = []
+    repos_with_data = []
+    for repo in sorted(COMMENT_CHART_REPOS):
+        dp = per_repo.get(repo) or []
+        if not dp:
+            continue
+        deltas = []
+        for wk in weeks:
+            window_start = wk - timedelta(days=WINDOW_DAYS)
+            cop_vals = [h for cd, h, is_cop in dp if is_cop and window_start <= cd < wk + timedelta(days=7)]
+            hum_vals = [h for cd, h, is_cop in dp if not is_cop and window_start <= cd < wk + timedelta(days=7)]
+            if len(cop_vals) >= MIN_PRS and len(hum_vals) >= MIN_PRS:
+                deltas.append(float(np.median(hum_vals) - np.median(cop_vals)))
+            else:
+                deltas.append(float("nan"))
+        if all(d != d for d in deltas):  # all NaN
+            continue
+        repos_with_data.append(repo)
+        ax.plot(weeks, deltas, color=get_color(repo), label=get_short(repo),
+                linewidth=2.0, alpha=0.9)
+        finite = [d for d in deltas if d == d]
+        visible_data.extend(finite)
+        line_ends.append((weeks, deltas, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping copilot time-to-comment delta — insufficient data)")
+        return
+
+    # Y-axis tuned to typical hour-scale variation
+    ax.set_ylim(-25, 35)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}"))
+    ax.legend(loc="upper right", fontsize=10)
+    label_line_ends(ax, line_ends)
+
+    # Custom dual arrows (no "Better" label — direction is informational, not normative)
+    arrow_x = 0.965
+    ax.annotate("", xy=(arrow_x, 0.78), xytext=(arrow_x, 0.55),
+                xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
+                                color="#888", lw=2))
+    ax.text(arrow_x - 0.005, 0.80, "copilot PRs get human\ncomment sooner",
+            transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
+            color="#666", style="italic")
+    ax.annotate("", xy=(arrow_x, 0.22), xytext=(arrow_x, 0.45),
+                xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
+                                color="#888", lw=2))
+    ax.text(arrow_x - 0.005, 0.20, "human PRs get human\ncomment sooner",
+            transform=ax.transAxes, fontsize=8, ha="right", va="top",
+            color="#666", style="italic")
+
+    add_insight_box(ax, [
+        "Per-repo P50 hours: human PRs minus copilot PRs to first non-author comment",
+        "Positive → copilot PRs get human comment sooner; Negative → human PRs sooner",
+        "Early indications that Copilot PRs are starting to get non-author human attention sooner",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_time_to_comment.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_time_comment_to_merge(all_items, all_first_comments, output_dir):
+    """P50 time from first human comment to merge, multi-repo, weekly with 4-week rolling window."""
+    import numpy as np
+    today = datetime.now().date()
+    coverage_cutoff = today - timedelta(days=365)
+    WINDOW_DAYS = 28
+    MIN_PRS = 5
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "First Human Comment to Merge — P50 (weekly, 4-week rolling)", "Days")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
+
+    # Generate weekly evaluation points
+    weeks = []
+    w = week_start(coverage_cutoff) + timedelta(weeks=4)
+    last_full = week_start(today) - timedelta(weeks=1)
+    while w <= last_full:
+        weeks.append(w)
+        w += timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    for repo in COMMENT_CHART_REPOS:
+        items = all_items.get(repo)
+        fc = all_first_comments.get(repo)
+        if not items or not fc:
+            continue
+        # Collect (create_date, days_comment_to_merge) tuples (sub-day precision)
+        data_points = []
+        for item in items:
+            if not item["is_pr"] or not item.get("merged_at"):
+                continue
+            fci = fc.get(item["number"])
+            if not fci:
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd or cd < coverage_cutoff:
+                continue
+            fc_dt = fci.get("first_comment_dt")
+            try:
+                merged_dt = datetime.fromisoformat(item["merged_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+            if not fc_dt:
+                continue
+            if fc_dt > merged_dt:
+                continue
+            days = (merged_dt - fc_dt).total_seconds() / 86400
+            if days < 0:
+                continue
+            data_points.append((cd, days))
+
+        if not data_points:
+            continue
+
+        p50s = []
+        for wk in weeks:
+            window_start = wk - timedelta(days=WINDOW_DAYS)
+            vals = [d for cd, d in data_points if window_start <= cd < wk + timedelta(days=7)]
+            p50s.append(float(np.median(vals)) if len(vals) >= MIN_PRS else float("nan"))
+
+        color = get_color(repo)
+        short = get_short(repo)
+        ax.plot(weeks, p50s, color=color, label=short, linewidth=1.5, alpha=0.85)
+        visible_data.append([v for v in p50s if not (v != v)])  # exclude NaN
+        line_ends.append((weeks, p50s, short, color))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping comment-to-merge — no comment data)")
+        return
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "How long PRs sit between getting first feedback and actually merging",
+        "Proxy for review-cycle efficiency — high values may indicate stalled discussions or back-and-forth iteration",
+        "P50 = median days from first non-author comment to merge (merged PRs only)",
+        "Roughly stable for runtime, roslyn, aspire over the last 4 months",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "time_comment_to_merge.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir):
+    """Per-repo P50 delta (Copilot − Human) for first-comment-to-merge days, weekly 4-week rolling.
+    Restricted to PRs created from 2025-07-01 onward (earlier copilot data too sparse)."""
+    import numpy as np
+    today = datetime.now().date()
+    coverage_cutoff = max(today - timedelta(days=365), date(2025, 7, 1))
+    WINDOW_DAYS = 28
+    MIN_PRS = 3
+
+    per_repo = {r: [] for r in COMMENT_CHART_REPOS}
+    for repo in COMMENT_CHART_REPOS:
+        items = all_items.get(repo)
+        fc = all_first_comments.get(repo)
+        if not items or not fc:
+            continue
+        for item in items:
+            if not item["is_pr"] or not item.get("merged_at"):
+                continue
+            cd = parse_date(item["created_at"])
+            if not cd or cd < coverage_cutoff:
+                continue
+            cls = _classify_copilot(item)
+            if cls == "unknown":
+                continue
+            fc_entry = fc.get(item["number"])
+            if not fc_entry:
+                continue
+            fc_dt = fc_entry.get("first_comment_dt")
+            try:
+                merged_dt = datetime.fromisoformat(item["merged_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+            if not fc_dt or fc_dt > merged_dt:
+                continue
+            days = (merged_dt - fc_dt).total_seconds() / 86400
+            if days < 0:
+                continue
+            per_repo[repo].append((cd, days, cls in ("cca", "assisted")))
+
+    # Weekly evaluation points
+    weeks = []
+    w = week_start(coverage_cutoff) + timedelta(weeks=4)
+    last_full = week_start(today) - timedelta(weeks=1)
+    while w <= last_full:
+        weeks.append(w)
+        w += timedelta(weeks=1)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "First Comment to Merge Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)", "Days")
+    ax.axhline(y=0, color="black", linewidth=0.7, alpha=0.6)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+
+    visible_data = []
+    line_ends = []
+    for repo in sorted(COMMENT_CHART_REPOS):
+        dp = per_repo.get(repo) or []
+        if not dp:
+            continue
+        deltas = []
+        for wk in weeks:
+            window_start = wk - timedelta(days=WINDOW_DAYS)
+            cop_vals = [d for cd, d, is_cop in dp if is_cop and window_start <= cd < wk + timedelta(days=7)]
+            hum_vals = [d for cd, d, is_cop in dp if not is_cop and window_start <= cd < wk + timedelta(days=7)]
+            if len(cop_vals) >= MIN_PRS and len(hum_vals) >= MIN_PRS:
+                deltas.append(float(np.median(hum_vals) - np.median(cop_vals)))
+            else:
+                deltas.append(float("nan"))
+        if all(d != d for d in deltas):
+            continue
+        ax.plot(weeks, deltas, color=get_color(repo), label=get_short(repo),
+                linewidth=2.0, alpha=0.9)
+        finite = [d for d in deltas if d == d]
+        visible_data.extend(finite)
+        line_ends.append((weeks, deltas, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping copilot comment-to-merge delta — insufficient data)")
+        return
+
+    ax.set_ylim(-10, 10)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.legend(loc="upper right", fontsize=10)
+    label_line_ends(ax, line_ends)
+
+    arrow_x = 0.965
+    ax.annotate("", xy=(arrow_x, 0.78), xytext=(arrow_x, 0.55),
+                xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
+                                color="#888", lw=2))
+    ax.text(arrow_x - 0.005, 0.80, "copilot PRs merge sooner\nafter they are first looked at",
+            transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
+            color="#666", style="italic")
+    ax.annotate("", xy=(arrow_x, 0.22), xytext=(arrow_x, 0.45),
+                xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>,head_width=0.5,head_length=0.4",
+                                color="#888", lw=2))
+    ax.text(arrow_x - 0.005, 0.20, "human PRs merge sooner\nafter they are first looked at",
+            transform=ax.transAxes, fontsize=8, ha="right", va="top",
+            color="#666", style="italic")
+
+    add_insight_box(ax, [
+        "Per-repo P50 days: human PRs minus copilot PRs, first comment → merge",
+        "Positive → copilot PRs merge sooner after feedback; Negative → human PRs sooner",
+        "PRs created from Jul 2025 onward only (earlier copilot data too sparse)",
+        "Copilot PRs merge about as quickly as human PRs, with early indications they may begin to merge quicker",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "copilot_time_comment_to_merge.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate repo health charts")
@@ -2842,6 +3644,17 @@ def main():
         all_maint[repo] = compute_monthly_maintainer_stats(all_items[repo])
         if all_maint[repo][0]:  # has months
             has_maintainer_data = True
+
+    print("Loading first-comment data...")
+    all_first_comments = {}
+    for repo in repos:
+        if repo in COMMENT_CHART_REPOS:
+            fc = load_first_comments(conn, repo)
+            if fc:
+                all_first_comments[repo] = fc
+                print(f"  {repo}: {len(fc)} PRs with comment data")
+            else:
+                print(f"  {repo}: no comment data")
     print()
 
     # Generate charts
@@ -2856,8 +3669,16 @@ def main():
         chart_open_prs_comparison(all_series, output_dir)
         chart_net_flow_comparison(all_series, output_dir)
         chart_pr_merge_rate_comparison(all_series, output_dir)
+        chart_pr_merge_rate_zoomed(all_items, output_dir)
+        chart_net_pr_flow_comparison(all_series, output_dir)
+        chart_pr_opened_vs_merged_zoomed(all_items, output_dir)
         chart_sustainability_score(all_series, output_dir)
         chart_time_to_merge(all_ttm, output_dir)
+        if all_first_comments:
+            chart_time_to_comment(all_items, all_first_comments, output_dir)
+            chart_copilot_time_to_comment(all_items, all_first_comments, output_dir)
+            chart_time_comment_to_merge(all_items, all_first_comments, output_dir)
+            chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir)
         chart_open_pr_age(all_items, output_dir)
         chart_issue_close_rate(all_items, output_dir)
         if has_maintainer_data:
@@ -2887,6 +3708,7 @@ def main():
     for repo in repos:
         chart_per_repo_dashboard(repo, all_series.get(repo), output_dir)
 
+    write_chart_registry(output_dir)
     conn.close()
     print(f"\nDone! Charts saved to {os.path.abspath(output_dir)}/")
 

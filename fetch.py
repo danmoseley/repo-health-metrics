@@ -31,6 +31,7 @@ SCHEMA_VERSION = 1
 REPOS = [
     "golang/go",          # smallest, good for pipeline validation
     "microsoft/aspire",   # aspire moved from dotnet/ to microsoft/ ~Mar 2026
+    "microsoft/vcpkg",
     "dotnet/maui",
     "dotnet/roslyn",
     "dotnet/runtime",
