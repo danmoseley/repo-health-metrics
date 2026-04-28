@@ -2,9 +2,13 @@
 """
 Fetch first qualifying comment timestamp for PRs.
 
-Uses the bulk /repos/{owner}/{repo}/issues/comments endpoint to efficiently
-scan all comments, then records the first non-author, non-bot comment per PR
-into a `pr_first_comment` table.
+Uses two GitHub bulk endpoints to efficiently scan all comments:
+  - /repos/{owner}/{repo}/issues/comments (conversation comments)
+  - /repos/{owner}/{repo}/pulls/comments  (inline review comments)
+Records the earliest qualifying (non-author, non-bot, non-copilot-requester)
+comment per PR into the `pr_first_comment` table. Resumable via
+`comment_fetch_progress` (issue-comments under repo, review-comments under
+pseudo-key `{repo}/reviews`).
 
 Only fetches comments from the last ~14 months (to support 1-year charts with
 smoothing buffer).
@@ -254,6 +258,9 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
             comment_id = c["id"]
             if comment_id <= last_seen_id:
                 continue
+            # Update last_seen_id immediately so resume bookkeeping is correct
+            # even when we skip this comment (e.g., already-have, info missing)
+            last_seen_id = max(last_seen_id, comment_id)
 
             # Extract PR number from issue_url
             issue_url = c.get("issue_url", "")
@@ -279,8 +286,6 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
                 batch.append((repo, pr_number, created_at, commenter))
                 existing.add(pr_number)
                 new_first_comments += 1
-
-            last_seen_id = max(last_seen_id, comment_id)
 
         total_comments += len(comments)
 
@@ -405,6 +410,9 @@ def fetch_review_comments_for_repo(session, conn, repo, since_date):
             comment_id = c["id"]
             if comment_id <= last_seen_id:
                 continue
+            # Update last_seen_id immediately so resume bookkeeping is correct
+            # even when we skip this comment (e.g., parse error, info missing)
+            last_seen_id = max(last_seen_id, comment_id)
 
             # Extract PR number from pull_request_url
             pr_url = c.get("pull_request_url", "")
@@ -433,8 +441,6 @@ def fetch_review_comments_for_repo(session, conn, repo, since_date):
                     batch_update.append((created_at, commenter, repo, pr_number))
                     existing_comments[pr_number] = created_at
                     updated_first += 1
-
-            last_seen_id = max(last_seen_id, comment_id)
 
         total_comments += len(comments)
 

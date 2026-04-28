@@ -3519,7 +3519,6 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
         print("  (skipping copilot comment-to-merge delta — insufficient data)")
         return
 
-    bound = max(abs(min(visible_data)), abs(max(visible_data)), 0.5) * 1.15
     ax.set_ylim(-10, 10)
     ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
