@@ -500,10 +500,11 @@ def label_line_ends(ax, lines_info):
     for dates, values, name, color in lines_info:
         if not dates or not values:
             continue
-        # Use the last non-None value
+        # Use the last non-None, non-NaN value
         for i in range(len(values) - 1, -1, -1):
-            if values[i] is not None:
-                endpoints.append((dates[i], values[i], name, color))
+            v = values[i]
+            if v is not None and v == v:  # NaN != NaN
+                endpoints.append((dates[i], v, name, color))
                 break
 
     if not endpoints:
