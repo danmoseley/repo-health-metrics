@@ -18,6 +18,7 @@ hash	title
 7ab7794	Time to First Comment — P50 (weekly, 4-week rolling)
 85e679f	First-Time Community Contributor Retention (% returning within 12 months)
 8847a7f	Community PR Concentration
+9042899	Copilot PRs by Type — All Repos Aggregated (4-week avg)
 9053d2a	Issue Turnaround (% Closed Within 30 Days, 6-month avg)
 95506c4	Median Age of Open Community Issues (Monthly Snapshot, 6-month avg)
 97a3b79	Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)
