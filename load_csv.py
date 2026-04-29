@@ -16,6 +16,89 @@ def nullify(row):
     return [None if v == "" else v for v in row]
 
 
+# (table_name, csv_filename, schema, columns)
+# Schema is the CREATE TABLE statement; gzip if filename ends in .gz.
+AUX_TABLES = [
+    (
+        "pr_first_comment",
+        "data/pr_first_comment.csv",
+        """CREATE TABLE IF NOT EXISTS pr_first_comment (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            first_comment_at TEXT NOT NULL,
+            commenter TEXT NOT NULL,
+            PRIMARY KEY (repo, number)
+        );""",
+        ["repo", "number", "first_comment_at", "commenter"],
+    ),
+    (
+        "pr_push_events",
+        "data/pr_push_events.csv.gz",
+        """CREATE TABLE IF NOT EXISTS pr_push_events (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            event_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            ts TEXT NOT NULL,
+            PRIMARY KEY (repo, number, event_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pr_push_events_repo_number
+            ON pr_push_events(repo, number);""",
+        ["repo", "number", "event_id", "kind", "ts"],
+    ),
+    (
+        "pr_push_progress",
+        "data/pr_push_progress.csv",
+        """CREATE TABLE IF NOT EXISTS pr_push_progress (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            last_fetched_at TEXT NOT NULL,
+            is_complete INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (repo, number)
+        );""",
+        ["repo", "number", "last_fetched_at", "is_complete"],
+    ),
+]
+
+
+def load_aux_tables(conn):
+    """Load auxiliary CSV tables (skipped silently if files missing)."""
+    for table, csv_rel, schema, cols in AUX_TABLES:
+        csv_path = Path(csv_rel)
+        if not csv_path.exists():
+            print(f"  (skipping {table}: {csv_rel} not found)")
+            continue
+        conn.executescript(schema)
+        opener = gzip.open if str(csv_path).endswith(".gz") else open
+        placeholders = ",".join("?" * len(cols))
+        col_list = ",".join(cols)
+        n = 0
+        with opener(csv_path, "rt", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            next(reader)  # header
+            batch = []
+            for row in reader:
+                row = nullify(row)
+                while len(row) < len(cols):
+                    row.append(None)
+                batch.append(row[:len(cols)])
+                if len(batch) >= 5000:
+                    conn.executemany(
+                        f"INSERT OR REPLACE INTO {table} ({col_list}) VALUES ({placeholders})",
+                        batch,
+                    )
+                    n += len(batch)
+                    batch = []
+            if batch:
+                conn.executemany(
+                    f"INSERT OR REPLACE INTO {table} ({col_list}) VALUES ({placeholders})",
+                    batch,
+                )
+                n += len(batch)
+        conn.commit()
+        print(f"  loaded {n:,} rows into {table} (from {csv_rel})")
+
+
 def main():
     csv_path = Path(CSV_PATH)
     if not csv_path.exists():
@@ -94,6 +177,9 @@ def main():
             count += len(batch)
 
     conn.commit()
+
+    # ─── Auxiliary tables (preserved data: comments, pushes, etc.) ───
+    load_aux_tables(conn)
 
     # Mark all repos as complete in fetch_progress
     # But only mark a type as complete if we actually have items of that type

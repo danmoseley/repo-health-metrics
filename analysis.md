@@ -143,9 +143,15 @@ When data is exported to CSV and reimported, empty strings replace SQL NULLs. Th
 |------|---------|
 | `fetch.py` | Paginated REST API fetcher with checkpoint/resume |
 | `fetch_mergers.py` | GraphQL-based merged_by fetcher for maintainer analysis |
+| `fetch_comments.py` | First-comment fetcher (REST `/issues/comments` + `/pulls/comments`) |
+| `fetch_pr_pushes.py` | PR push-event fetcher (REST `/issues/{n}/timeline`) |
 | `analyze.py` | Time series computation and chart generation (with lineage merging) |
-| `load_csv.py` | Rebuild SQLite DB from compressed CSV |
-| `data/items.csv.gz` | Compressed data export (~15MB, 791K items across 8 repos) |
+| `backup_csvs.py` | Export auxiliary tables to `data/*.csv[.gz]` for git tracking |
+| `load_csv.py` | Rebuild SQLite DB from committed CSVs |
+| `data/items.csv.gz` | Compressed items export (~15MB, 791K items across 8 repos) |
+| `data/pr_first_comment.csv` | First-comment timestamps per PR |
+| `data/pr_push_events.csv.gz` | Per-PR push/CI-trigger event timestamps |
+| `data/pr_push_progress.csv` | Push-event fetcher resume state |
 | `charts/` | Generated PNG charts |
 | `plan.md` | Original feasibility proposal and design notes |
 
