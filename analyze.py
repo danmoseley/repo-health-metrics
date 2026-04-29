@@ -3573,6 +3573,197 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
     print(f"  {path}")
 
 
+# ── Push-events Chart ───────────────────────────────────────────────────────
+
+# Repos with push-event data fetched (mirrors fetch_pr_pushes.py DEFAULT_REPOS).
+# Currently restricted to dotnet/runtime — full fetch for the others takes ~3h
+# each; extend after running fetch_pr_pushes.py for them.
+PUSH_CHART_REPOS = (
+    "dotnet/runtime",
+)
+
+# Cluster events whose consecutive timestamps differ by ≤ this many minutes
+# into a single "push" (= one CI trigger).
+PUSH_CLUSTER_GAP_MINUTES = 5
+
+
+def load_push_events(conn, repo):
+    """Load push events from pr_push_events.
+    Returns dict: PR number -> sorted list of datetime objects."""
+    try:
+        rows = conn.execute(
+            "SELECT number, ts FROM pr_push_events WHERE repo = ? ORDER BY number, ts",
+            (repo,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    by_pr = defaultdict(list)
+    for number, ts in rows:
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+        by_pr[number].append(dt)
+    return dict(by_pr)
+
+
+def cluster_pushes(timestamps, gap_minutes=PUSH_CLUSTER_GAP_MINUTES):
+    """Given a sorted list of datetimes, return the number of clusters where
+    consecutive members within `gap_minutes` collapse into one cluster."""
+    if not timestamps:
+        return 0
+    gap = timedelta(minutes=gap_minutes)
+    count = 1
+    last = timestamps[0]
+    for t in timestamps[1:]:
+        if t - last > gap:
+            count += 1
+        last = t
+    return count
+
+
+def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
+    """Median + P75 of CI-triggering pushes per merged PR, bucketed by merge week.
+    Only plots weeks where we have push-event coverage for >=70% of merged PRs
+    in that week (drops sparse leftover data from earlier scoped runs)."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(
+        ax,
+        "CI-Triggering Pushes per PR (merge week, P50 + P75)",
+        "Pushes per merged PR",
+    )
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=18 * 30)
+    MIN_PRS_PER_WEEK = 15
+    MIN_COVERAGE = 0.70
+
+    visible_data = []
+    line_ends = []
+    weeks_global = set()
+    any_data = False
+
+    for repo in PUSH_CHART_REPOS:
+        items = all_items.get(repo)
+        events = all_push_events.get(repo)
+        if not items or not events:
+            continue
+
+        push_counts = defaultdict(list)   # week_start -> [n_pushes, ...]
+        merged_total = defaultdict(int)   # week_start -> total merged PRs
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            md = parse_date(item["merged_at"])
+            if not md or md < cutoff:
+                continue
+            wk = week_start(md)
+            merged_total[wk] += 1
+            ts_list = events.get(item["number"])
+            if not ts_list:
+                continue
+            n_pushes = cluster_pushes(ts_list)
+            if n_pushes <= 0:
+                continue
+            push_counts[wk].append(n_pushes)
+
+        if not push_counts:
+            continue
+        any_data = True
+
+        x, p50, p75 = [], [], []
+        # Skip the current week — it's still in progress and biases the result
+        cur_week = week_start(today)
+        for w in sorted(push_counts):
+            if w >= cur_week:
+                continue
+            vals = push_counts[w]
+            if len(vals) < MIN_PRS_PER_WEEK:
+                continue
+            coverage = len(vals) / max(1, merged_total[w])
+            if coverage < MIN_COVERAGE:
+                continue
+            x.append(w)
+            p50.append(float(np.median(vals)))
+            p75.append(float(np.percentile(vals, 75)))
+        if not x:
+            continue
+        # Plot as separate segments where there's a gap > 2 weeks so matplotlib
+        # doesn't draw a misleading straight line across long data gaps.
+        # NaN-in-list approach proved unreliable with date x-axis.
+        segments = [[]]
+        for i in range(len(x)):
+            if i > 0 and (x[i] - x[i - 1]).days > 14:
+                segments.append([])
+            segments[-1].append(i)
+
+        color = get_color(repo)
+        short = get_short(repo)
+        first = True
+        for seg in segments:
+            if len(seg) < 2:
+                continue  # skip orphan single-week clusters that distort axes
+            sx = [x[i] for i in seg]
+            s50 = [p50[i] for i in seg]
+            s75 = [p75[i] for i in seg]
+            ax.plot(sx, s50, color=color, linewidth=2.0, alpha=0.9,
+                    label=f"{short} P50" if first else None)
+            ax.plot(sx, s75, color=color, linewidth=1.0, alpha=0.5,
+                    linestyle="--",
+                    label=f"{short} P75" if first else None)
+            first = False
+            visible_data.extend(s75)
+        # Use the largest segment for end-label
+        largest = max(segments, key=len)
+        if len(largest) >= 2:
+            line_ends.append(([x[i] for i in largest],
+                              [p50[i] for i in largest], short, color))
+        # Update weeks_global to only include weeks we actually plotted
+        for seg in segments:
+            if len(seg) >= 2:
+                for i in seg:
+                    weeks_global.add(x[i])
+
+    if not any_data or not weeks_global:
+        plt.close(fig)
+        print("  (skipping pushes-per-pr — no complete-coverage weeks)")
+        return
+
+    if visible_data:
+        ymax = max(visible_data) * 1.15
+        ax.set_ylim(0, max(ymax, 2))
+
+    # Force xlim AFTER everything else to override setup_axes default locators
+    xmin = min(weeks_global) - timedelta(days=3)
+    xmax = max(weeks_global) + timedelta(days=10)
+    ax.set_xlim(xmin, xmax)
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0, interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "Solid = P50 pushes/PR; dashed = P75 (per repo)",
+        f"A 'push' = git push event triggering CI. Commits within "
+        f"{PUSH_CLUSTER_GAP_MINUTES} min are clustered as one push.",
+        "Counts both regular pushes and force-pushes (timeline events)",
+        "Bucketed by merge week (merged PRs only); weeks with <70% "
+        f"event-coverage or <{MIN_PRS_PER_WEEK} PRs are dropped",
+        "Caveat: committed-event timestamps reflect commit time (close to push "
+        "after rebase, can diverge if commits are made locally then pushed later)",
+    ], loc="lower right")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pushes_per_pr.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate repo health charts")
@@ -3658,6 +3849,16 @@ def main():
                 print(f"  {repo}: no comment data")
     print()
 
+    print("Loading push-event data...")
+    all_push_events = {}
+    for repo in repos:
+        if repo in PUSH_CHART_REPOS:
+            pe = load_push_events(conn, repo)
+            if pe:
+                all_push_events[repo] = pe
+                print(f"  {repo}: {len(pe)} PRs with push events")
+    print()
+
     # Generate charts
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
@@ -3680,6 +3881,8 @@ def main():
             chart_copilot_time_to_comment(all_items, all_first_comments, output_dir)
             chart_time_comment_to_merge(all_items, all_first_comments, output_dir)
             chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir)
+        if all_push_events:
+            chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir)
         chart_open_pr_age(all_items, output_dir)
         chart_issue_close_rate(all_items, output_dir)
         if has_maintainer_data:

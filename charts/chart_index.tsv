@@ -18,6 +18,7 @@ hash	title
 8259e7a	First Comment to Merge Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)
 85e679f	First-Time Community Contributor Retention (% returning within 12 months)
 8847a7f	Community PR Concentration
+888959c	CI-Triggering Pushes per PR (merge week, P50 + P75)
 9053d2a	Issue Turnaround (% Closed Within 30 Days, 6-month avg)
 95506c4	Median Age of Open Community Issues (Monthly Snapshot, 6-month avg)
 97a3b79	Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)
