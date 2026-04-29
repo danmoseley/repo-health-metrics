@@ -2025,7 +2025,7 @@ def chart_copilot_adoption(all_items, output_dir):
             "Useful for spotting whether dotnet Copilot usage is dominated by CCA or human-assisted",
             "Other repos (vscode, vcpkg, rust, go, pyright) excluded to keep focus on the dotnet stack",
             "Weeks with <90% per-week trailer-check coverage dropped (data-collection lag)",
-        ])
+        ], loc="lower right")
     fig.tight_layout()
     path = os.path.join(output_dir, "copilot_by_type_aggregate.png")
     fig.savefig(path, dpi=150)
