@@ -10,6 +10,7 @@ hash	title
 3ecf41f	Time to Merge PRs — 75th Percentile (18-month avg)
 3ffef8d	Community vs Maintainer Merge Speed (ratio, lower = more equal)
 4774cbc	Copilot PRs by Type (4-week avg)
+4d62f93	CI-Triggering Pushes per PR — weekly means with linear trend
 613d0f6	Median Age of Open PRs (Monthly Snapshot, 6-month avg)
 663108d	Copilot PRs as % of All PRs (4-week avg)
 6c604c1	Open Issues
@@ -39,5 +40,4 @@ dd0bcb3	Community PR Merge Latency (median days, 6-month rolling)
 e98fb5a	Open PRs per Active Maintainer (3-month rolling avg)
 eb7bb95	PR Merge Rate: Copilot vs Human — dotnet/runtime (Monthly)
 effafa6	Community PR Concentration Over Time (Gini Coefficient, 6-month windows)
-f1d7c37	CI-Triggering Pushes per PR — weekly mean (band = P25-P75)
 fc23ee6	Community Share of Issues (6-month avg)
