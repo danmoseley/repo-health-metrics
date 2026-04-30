@@ -130,7 +130,7 @@ Stores the earliest qualifying comment from **both** `/issues/comments` (convers
 | `kind` | TEXT | NOT NULL | — | `committed` or `force_pushed` |
 | `ts` | TEXT | NOT NULL | — | ISO 8601 timestamp (committer.date for `committed`, created_at for `force_pushed`) |
 
-**Primary key:** `(repo, number, event_id)`. Index on `(repo, number)`.
+**Primary key:** `(repo, number, kind, event_id)`. Index on `(repo, number)`. (`kind` is part of the key to defensively prevent any theoretical collision between a commit-SHA and a numeric force-push event id.)
 
 Populated by `fetch_pr_pushes.py`. The chart `chart_pushes_per_pr_over_time`
 loads these and clusters timestamps within 5 min into "pushes" (= one CI trigger).
@@ -144,7 +144,7 @@ loads these and clusters timestamps within 5 min into "pushes" (= one CI trigger
 | `last_fetched_at` | TEXT | NOT NULL | — | When we last walked this PR's timeline |
 | `is_complete` | INTEGER | NOT NULL | 1 | 1 if we paginated all the way to the end |
 
-**Primary key:** `(repo, number)`. Open PRs and last-7-day-closed PRs are re-fetched each run.
+**Primary key:** `(repo, number)`. Open PRs and PRs closed in the last 7 days are only re-fetched when `fetch_pr_pushes.py` is run with `--refresh-open`.
 
 ## Backup / Restore
 

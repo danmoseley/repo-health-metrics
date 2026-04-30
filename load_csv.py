@@ -40,7 +40,7 @@ AUX_TABLES = [
             event_id TEXT NOT NULL,
             kind TEXT NOT NULL,
             ts TEXT NOT NULL,
-            PRIMARY KEY (repo, number, event_id)
+            PRIMARY KEY (repo, number, kind, event_id)
         );
         CREATE INDEX IF NOT EXISTS idx_pr_push_events_repo_number
             ON pr_push_events(repo, number);""",

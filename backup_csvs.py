@@ -65,11 +65,16 @@ def main():
             continue
         path = os.path.join(DATA_DIR, fname)
         col_list = ", ".join(cols)
-        rows = conn.execute(
-            f"SELECT {col_list} FROM {table} ORDER BY {cols[0]}, {cols[1]}"
-            if len(cols) >= 2 else
-            f"SELECT {col_list} FROM {table} ORDER BY {cols[0]}"
-        )
+        # Stable ordering for reproducible CSV diffs. pr_push_events has many
+        # rows per (repo, number); sort by ts + event_id to keep order
+        # deterministic across runs even if SQLite returns rows in insert order.
+        if table == "pr_push_events":
+            order = "repo, number, ts, event_id"
+        elif len(cols) >= 2:
+            order = f"{cols[0]}, {cols[1]}"
+        else:
+            order = cols[0]
+        rows = conn.execute(f"SELECT {col_list} FROM {table} ORDER BY {order}")
         opener = gzip.open if path.endswith(".gz") else open
         n = 0
         with opener(path, "wt", encoding="utf-8", newline="") as f:
