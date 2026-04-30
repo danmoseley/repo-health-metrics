@@ -10,6 +10,7 @@ hash	title
 3ecf41f	Time to Merge PRs — 75th Percentile (18-month avg)
 3ffef8d	Community vs Maintainer Merge Speed (ratio, lower = more equal)
 4774cbc	Copilot PRs by Type (4-week avg)
+4d62f93	CI-Triggering Pushes per PR — weekly means with linear trend
 613d0f6	Median Age of Open PRs (Monthly Snapshot, 6-month avg)
 663108d	Copilot PRs as % of All PRs (4-week avg)
 6c604c1	Open Issues

@@ -120,12 +120,41 @@ Stores the earliest qualifying comment from **both** `/issues/comments` (convers
 
 **Primary key:** `(repo)`
 
+### `pr_push_events` — per-PR push/CI-trigger events
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | e.g. `dotnet/runtime` |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `event_id` | TEXT | NOT NULL | — | Stable ID — commit SHA for `committed` events, GitHub timeline event id for `head_ref_force_pushed` events |
+| `kind` | TEXT | NOT NULL | — | `committed` or `force_pushed` |
+| `ts` | TEXT | NOT NULL | — | ISO 8601 timestamp (committer.date for `committed`, created_at for `force_pushed`) |
+
+**Primary key:** `(repo, number, event_id)`. Index on `(repo, number)`.
+
+Populated by `fetch_pr_pushes.py`. The chart `chart_pushes_per_pr_over_time`
+loads these and clusters timestamps within 5 min into "pushes" (= one CI trigger).
+
+### `pr_push_progress` — bookkeeping for fetch_pr_pushes.py
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | Repository |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `last_fetched_at` | TEXT | NOT NULL | — | When we last walked this PR's timeline |
+| `is_complete` | INTEGER | NOT NULL | 1 | 1 if we paginated all the way to the end |
+
+**Primary key:** `(repo, number)`. Open PRs and last-7-day-closed PRs are re-fetched each run.
+
 ## Backup / Restore
 
-- **Backup:** `data/items.csv.gz` — gzipped CSV of the full `items` table
-- **Restore:** `python load_csv.py` — recreates DB from CSV (DB must not exist)
-- **DB file** (`pr-dashboard.db`) is gitignored; CSV is committed
+- **Backup auxiliary tables:** `python backup_csvs.py` — exports `pr_first_comment`, `pr_push_events`, `pr_push_progress` to `data/*.csv[.gz]`
+- **Backup items:** `data/items.csv.gz` — gzipped CSV of the full `items` table (separate process)
+- **Restore:** `python load_csv.py` — recreates DB from `data/items.csv.gz` AND all auxiliary CSVs (DB must not exist)
+- **DB file** (`pr-dashboard.db`) is gitignored; CSVs are committed
 - `fetch_progress` is regenerated automatically from item counts during restore
+
+> **Always re-run `backup_csvs.py` and commit `data/*.csv*` after a fetch.** GitHub API calls are slow and rate-limited; the committed CSVs are the source of truth in git.
 
 ## Scripts that populate this DB
 

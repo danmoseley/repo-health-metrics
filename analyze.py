@@ -3573,6 +3573,264 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
     print(f"  {path}")
 
 
+# ── Push-events Chart ───────────────────────────────────────────────────────
+
+# Repos with push-event data fetched (mirrors fetch_pr_pushes.py DEFAULT_REPOS).
+PUSH_CHART_REPOS = (
+    "dotnet/runtime", "dotnet/roslyn", "dotnet/maui", "microsoft/aspire",
+)
+
+# Cluster events whose consecutive timestamps differ by ≤ this many minutes
+# into a single "push" (= one CI trigger).
+PUSH_CLUSTER_GAP_MINUTES = 5
+# Cap per-PR push counts to avoid stuck/auto-merge-loop PRs (we've seen
+# roslyn PRs with 200+ pushes from bot-driven rebase loops) dominating
+# the weekly mean. PRs above this cap still count as MAX_PUSHES_PER_PR.
+MAX_PUSHES_PER_PR = 30
+
+
+def load_push_events(conn, repo):
+    """Load push events from pr_push_events.
+    Returns dict: PR number -> sorted list of datetime objects."""
+    try:
+        rows = conn.execute(
+            "SELECT number, ts FROM pr_push_events WHERE repo = ? ORDER BY number, ts",
+            (repo,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    by_pr = defaultdict(list)
+    for number, ts in rows:
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+        by_pr[number].append(dt)
+    return dict(by_pr)
+
+
+def cluster_pushes(timestamps, gap_minutes=PUSH_CLUSTER_GAP_MINUTES):
+    """Given a sorted list of datetimes, return the number of clusters where
+    consecutive members within `gap_minutes` collapse into one cluster."""
+    if not timestamps:
+        return 0
+    gap = timedelta(minutes=gap_minutes)
+    count = 1
+    last = timestamps[0]
+    for t in timestamps[1:]:
+        if t - last > gap:
+            count += 1
+        last = t
+    return count
+
+
+def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
+    """Mean CI-triggering pushes per merged PR, bucketed by merge week.
+    Mean (rather than median) gives a continuous y-axis that responds to
+    small distribution shifts; the band shows P25-P75 of the per-PR distribution."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(
+        ax,
+        "CI-Triggering Pushes per PR — weekly means with linear trend",
+        "Pushes per merged PR",
+    )
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=18 * 30)
+    MIN_PRS_PER_WEEK = 20
+    MIN_COVERAGE = 0.70
+
+    visible_data = []
+    line_ends = []
+    weeks_global = set()
+    any_data = False
+
+    # Collect per-PR data (not just weekly aggregated) so we can compute
+    # first-3mo vs last-3mo stats for the comparison table.
+    repo_pr_data = {}  # repo -> [(merge_date, n_pushes), ...]
+
+    for repo in PUSH_CHART_REPOS:
+        items = all_items.get(repo)
+        events = all_push_events.get(repo)
+        if not items or not events:
+            continue
+
+        per_pr = []
+        push_counts = defaultdict(list)   # week -> [n_pushes per PR, ...]
+        merged_total = defaultdict(int)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            md = parse_date(item["merged_at"])
+            if not md or md < cutoff:
+                continue
+            wk = week_start(md)
+            merged_total[wk] += 1
+            ts_list = events.get(item["number"])
+            if not ts_list:
+                continue
+            n_pushes = cluster_pushes(ts_list)
+            if n_pushes <= 0:
+                continue
+            n_pushes = min(n_pushes, MAX_PUSHES_PER_PR)
+            push_counts[wk].append(n_pushes)
+            per_pr.append((md, n_pushes))
+
+        repo_pr_data[repo] = per_pr
+
+        if not push_counts:
+            continue
+        any_data = True
+
+        x, mean_v, p25, p75 = [], [], [], []
+        cur_week = week_start(today)
+        for w in sorted(push_counts):
+            if w >= cur_week:
+                continue
+            vals = push_counts[w]
+            if len(vals) < MIN_PRS_PER_WEEK:
+                continue
+            coverage = len(vals) / max(1, merged_total[w])
+            if coverage < MIN_COVERAGE:
+                continue
+            x.append(w)
+            mean_v.append(float(np.mean(vals)))
+            p25.append(float(np.percentile(vals, 25)))
+            p75.append(float(np.percentile(vals, 75)))
+        if not x:
+            continue
+
+        # Plot as a scatter of weekly means + linear regression line
+        # (much cleaner than connected lines for a trend question)
+        color = get_color(repo)
+        short = get_short(repo)
+        x_dt = mdates.date2num(x)
+        ax.scatter(x, mean_v, color=color, s=22, alpha=0.55, zorder=3,
+                   label=f"{short} weekly mean")
+        # Linear regression on weekly means
+        if len(x) >= 4:
+            slope, intercept = np.polyfit(x_dt, mean_v, 1)
+            xfit = np.array([x_dt[0], x_dt[-1]])
+            yfit = slope * xfit + intercept
+            ax.plot(mdates.num2date(xfit), yfit, color=color, linewidth=2.2,
+                    alpha=0.9, zorder=4)
+        visible_data.extend(mean_v)
+        line_ends.append((x, mean_v, short, color))
+        for w in x:
+            weeks_global.add(w)
+
+    if not any_data or not weeks_global:
+        plt.close(fig)
+        print("  (skipping pushes-per-pr — no complete-coverage weeks)")
+        return
+
+    if visible_data:
+        # Cap y at the 95th percentile of P75 values to keep the means readable;
+        # P90+ outliers extend outside the visible area on purpose.
+        import numpy as np
+        ymax = float(np.percentile(visible_data, 95)) * 1.4
+        ax.set_ylim(0, max(ymax, 5))
+
+    xmin = min(weeks_global) - timedelta(days=3)
+    xmax = max(weeks_global) + timedelta(days=10)
+    ax.set_xlim(xmin, xmax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+
+    # Compare-periods stats table (top right): mean ± std for first 3 mo vs
+    # last 3 mo of the visible window, with Welch's t-test significance marker.
+    if weeks_global and repo_pr_data:
+        win_start = min(weeks_global)
+        win_end = max(weeks_global) + timedelta(days=6)
+        first_end = win_start + timedelta(days=90)
+        last_start = win_end - timedelta(days=90)
+        table_rows = [["repo", "first 3mo (mean ± std)", "last 3mo (mean ± std)", "Δ ± 95% CI"]]
+        for repo in PUSH_CHART_REPOS:
+            data = repo_pr_data.get(repo) or []
+            first_vals = [n for d, n in data if win_start <= d < first_end]
+            last_vals = [n for d, n in data if last_start <= d <= win_end]
+            if len(first_vals) < 20 or len(last_vals) < 20:
+                table_rows.append([get_short(repo), "—", "—", "—"])
+                continue
+            n1, n2 = len(first_vals), len(last_vals)
+            m1 = float(np.mean(first_vals))
+            m2 = float(np.mean(last_vals))
+            s1 = float(np.std(first_vals, ddof=1))
+            s2 = float(np.std(last_vals, ddof=1))
+            # Welch's t-test (no scipy needed)
+            se_diff = (s1 ** 2 / n1 + s2 ** 2 / n2) ** 0.5
+            if se_diff > 0:
+                t = (m2 - m1) / se_diff
+                num = (s1 ** 2 / n1 + s2 ** 2 / n2) ** 2
+                den = (s1 ** 4 / (n1 ** 2 * (n1 - 1))
+                       + s2 ** 4 / (n2 ** 2 * (n2 - 1)))
+                df = num / den if den > 0 else min(n1, n2) - 1
+                from math import erf, sqrt
+                z = abs(t)
+                pval = 2 * (1 - 0.5 * (1 + erf(z / sqrt(2))))
+            else:
+                pval = 1.0
+            sig = ("***" if pval < 0.001
+                   else "**" if pval < 0.01
+                   else "*" if pval < 0.05 else "")
+            delta = m2 - m1
+            sign = "+" if delta >= 0 else ""
+            # 95% CI on the difference: with df > 100 the t-critical is ~1.96
+            ci95 = 1.96 * se_diff
+            table_rows.append([
+                get_short(repo),
+                f"{m1:.2f} ± {s1:.1f} (n={n1})",
+                f"{m2:.2f} ± {s2:.1f} (n={n2})",
+                f"{sign}{delta:.2f} ± {ci95:.2f}{sig}",
+            ])
+        tbl = ax.table(
+            cellText=table_rows[1:],
+            colLabels=table_rows[0],
+            loc="upper right",
+            cellLoc="left",
+            colLoc="left",
+            bbox=[0.50, 0.66, 0.49, 0.30],
+        )
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(8)
+        for (r, c), cell in tbl.get_celld().items():
+            cell.set_edgecolor("#cccccc")
+            if r == 0:
+                cell.set_facecolor("#f0f0f0")
+                cell.set_text_props(weight="bold")
+            else:
+                cell.set_facecolor("#ffffff")
+        ax.text(0.99, 0.65,
+                "± std shows PR-to-PR spread; ± 95% CI shows uncertainty of the difference. "
+                "Welch's t-test: * p<0.05, ** p<0.01, *** p<0.001.",
+                transform=ax.transAxes, fontsize=7, color="#666",
+                ha="right", va="top", style="italic", wrap=True)
+
+    add_insight_box(ax, [
+        "Dots = per-week mean pushes/PR; line = per-repo linear regression",
+        f"A 'push' = git push event triggering CI. Commits within "
+        f"{PUSH_CLUSTER_GAP_MINUTES} min are clustered as one push.",
+        "Counts both regular pushes and force-pushes (timeline events)",
+        f"Per-PR push count capped at {MAX_PUSHES_PER_PR} to suppress stuck/auto-merge-loop PRs",
+        f"Weeks with <{MIN_PRS_PER_WEEK} merged PRs or <70% event-coverage are dropped",
+        "Caveat: committed-event timestamps reflect commit time (close to push "
+        "after rebase, can diverge if commits are made locally then pushed later)",
+    ], loc="lower right")
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pushes_per_pr.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate repo health charts")
@@ -3658,6 +3916,16 @@ def main():
                 print(f"  {repo}: no comment data")
     print()
 
+    print("Loading push-event data...")
+    all_push_events = {}
+    for repo in repos:
+        if repo in PUSH_CHART_REPOS:
+            pe = load_push_events(conn, repo)
+            if pe:
+                all_push_events[repo] = pe
+                print(f"  {repo}: {len(pe)} PRs with push events")
+    print()
+
     # Generate charts
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
@@ -3680,6 +3948,8 @@ def main():
             chart_copilot_time_to_comment(all_items, all_first_comments, output_dir)
             chart_time_comment_to_merge(all_items, all_first_comments, output_dir)
             chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_dir)
+        if all_push_events:
+            chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir)
         chart_open_pr_age(all_items, output_dir)
         chart_issue_close_rate(all_items, output_dir)
         if has_maintainer_data:
