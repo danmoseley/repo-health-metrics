@@ -3752,7 +3752,7 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
         win_end = max(weeks_global) + timedelta(days=6)
         first_end = win_start + timedelta(days=90)
         last_start = win_end - timedelta(days=90)
-        table_rows = [["repo", "first 3mo", "last 3mo", "Δ"]]
+        table_rows = [["repo", "first 3mo (mean ± std)", "last 3mo (mean ± std)", "Δ ± 95% CI"]]
         for repo in PUSH_CHART_REPOS:
             data = repo_pr_data.get(repo) or []
             first_vals = [n for d, n in data if win_start <= d < first_end]
@@ -3766,15 +3766,13 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
             s1 = float(np.std(first_vals, ddof=1))
             s2 = float(np.std(last_vals, ddof=1))
             # Welch's t-test (no scipy needed)
-            se = (s1 ** 2 / n1 + s2 ** 2 / n2) ** 0.5
-            if se > 0:
-                t = (m2 - m1) / se
-                # Welch-Satterthwaite df
+            se_diff = (s1 ** 2 / n1 + s2 ** 2 / n2) ** 0.5
+            if se_diff > 0:
+                t = (m2 - m1) / se_diff
                 num = (s1 ** 2 / n1 + s2 ** 2 / n2) ** 2
                 den = (s1 ** 4 / (n1 ** 2 * (n1 - 1))
                        + s2 ** 4 / (n2 ** 2 * (n2 - 1)))
                 df = num / den if den > 0 else min(n1, n2) - 1
-                # Two-sided p-value via normal approximation (df is large)
                 from math import erf, sqrt
                 z = abs(t)
                 pval = 2 * (1 - 0.5 * (1 + erf(z / sqrt(2))))
@@ -3785,11 +3783,13 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
                    else "*" if pval < 0.05 else "")
             delta = m2 - m1
             sign = "+" if delta >= 0 else ""
+            # 95% CI on the difference: with df > 100 the t-critical is ~1.96
+            ci95 = 1.96 * se_diff
             table_rows.append([
                 get_short(repo),
                 f"{m1:.2f} ± {s1:.1f} (n={n1})",
                 f"{m2:.2f} ± {s2:.1f} (n={n2})",
-                f"{sign}{delta:.2f}{sig}",
+                f"{sign}{delta:.2f} ± {ci95:.2f}{sig}",
             ])
         tbl = ax.table(
             cellText=table_rows[1:],
@@ -3809,9 +3809,10 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
             else:
                 cell.set_facecolor("#ffffff")
         ax.text(0.99, 0.65,
-                "Welch's t-test on per-PR counts: * p<0.05, ** p<0.01, *** p<0.001",
+                "± std shows PR-to-PR spread; ± 95% CI shows uncertainty of the difference. "
+                "Welch's t-test: * p<0.05, ** p<0.01, *** p<0.001.",
                 transform=ax.transAxes, fontsize=7, color="#666",
-                ha="right", va="top", style="italic")
+                ha="right", va="top", style="italic", wrap=True)
 
     add_insight_box(ax, [
         "Dots = per-week mean pushes/PR; line = per-repo linear regression",
