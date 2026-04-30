@@ -3583,6 +3583,10 @@ PUSH_CHART_REPOS = (
 # Cluster events whose consecutive timestamps differ by ≤ this many minutes
 # into a single "push" (= one CI trigger).
 PUSH_CLUSTER_GAP_MINUTES = 5
+# Cap per-PR push counts to avoid stuck/auto-merge-loop PRs (we've seen
+# roslyn PRs with 200+ pushes from bot-driven rebase loops) dominating
+# the weekly mean. PRs above this cap still count as MAX_PUSHES_PER_PR.
+MAX_PUSHES_PER_PR = 30
 
 
 def load_push_events(conn, repo):
@@ -3621,14 +3625,14 @@ def cluster_pushes(timestamps, gap_minutes=PUSH_CLUSTER_GAP_MINUTES):
 
 
 def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
-    """Median + P75 of CI-triggering pushes per merged PR, bucketed by merge day.
-    Only plots days where we have push-event coverage for >=70% of merged PRs
-    in that day (drops sparse leftover data from earlier scoped runs)."""
+    """Mean CI-triggering pushes per merged PR, bucketed by merge week.
+    Mean (rather than median) gives a continuous y-axis that responds to
+    small distribution shifts; the band shows P25-P75 of the per-PR distribution."""
     import numpy as np
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(
         ax,
-        "CI-Triggering Pushes per PR — daily, 28-day rolling (P50 + P25-P75)",
+        "CI-Triggering Pushes per PR — weekly mean (band = P25-P75)",
         "Pushes per merged PR",
     )
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
@@ -3636,13 +3640,12 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
 
     today = datetime.now().date()
     cutoff = today - timedelta(days=18 * 30)
-    MIN_PRS_PER_DAY = 5
+    MIN_PRS_PER_WEEK = 20
     MIN_COVERAGE = 0.70
-    ROLLING_DAYS = 28
 
     visible_data = []
     line_ends = []
-    days_global = set()
+    weeks_global = set()
     any_data = False
 
     for repo in PUSH_CHART_REPOS:
@@ -3651,56 +3654,48 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
         if not items or not events:
             continue
 
-        push_counts = defaultdict(list)   # day -> [n_pushes, ...]
-        merged_total = defaultdict(int)   # day -> total merged PRs
+        push_counts = defaultdict(list)   # week -> [n_pushes per PR, ...]
+        merged_total = defaultdict(int)
         for item in items:
             if not item.get("is_pr") or not item.get("merged_at"):
                 continue
             md = parse_date(item["merged_at"])
             if not md or md < cutoff:
                 continue
-            merged_total[md] += 1
+            wk = week_start(md)
+            merged_total[wk] += 1
             ts_list = events.get(item["number"])
             if not ts_list:
                 continue
             n_pushes = cluster_pushes(ts_list)
             if n_pushes <= 0:
                 continue
-            push_counts[md].append(n_pushes)
+            # Cap to suppress stuck/auto-merge-loop PRs
+            n_pushes = min(n_pushes, MAX_PUSHES_PER_PR)
+            push_counts[wk].append(n_pushes)
 
         if not push_counts:
             continue
         any_data = True
 
-        # 7-day rolling window evaluated daily; skip current day
-        all_days = sorted(set(list(push_counts.keys()) + list(merged_total.keys())))
-        if not all_days:
-            continue
-        x, p10, p25, p50, p75, p90 = [], [], [], [], [], []
-        d = all_days[0]
-        end = today - timedelta(days=1)
-        while d <= end:
-            window_vals = []
-            window_total = 0
-            window_with_events = 0
-            for k in range(ROLLING_DAYS):
-                day = d - timedelta(days=k)
-                window_vals.extend(push_counts.get(day, []))
-                window_total += merged_total.get(day, 0)
-                window_with_events += len(push_counts.get(day, []))
-            if window_with_events >= MIN_PRS_PER_DAY * 2 and window_total > 0:
-                coverage = window_with_events / window_total
-                if coverage >= MIN_COVERAGE:
-                    x.append(d)
-                    p10.append(float(np.percentile(window_vals, 10)))
-                    p25.append(float(np.percentile(window_vals, 25)))
-                    p50.append(float(np.median(window_vals)))
-                    p75.append(float(np.percentile(window_vals, 75)))
-                    p90.append(float(np.percentile(window_vals, 90)))
-            d += timedelta(days=1)
-
+        x, mean_v, p25, p75 = [], [], [], []
+        cur_week = week_start(today)
+        for w in sorted(push_counts):
+            if w >= cur_week:
+                continue
+            vals = push_counts[w]
+            if len(vals) < MIN_PRS_PER_WEEK:
+                continue
+            coverage = len(vals) / max(1, merged_total[w])
+            if coverage < MIN_COVERAGE:
+                continue
+            x.append(w)
+            mean_v.append(float(np.mean(vals)))
+            p25.append(float(np.percentile(vals, 25)))
+            p75.append(float(np.percentile(vals, 75)))
         if not x:
             continue
+
         # Plot as separate segments where there's a gap > 14 days
         segments = [[]]
         for i in range(len(x)):
@@ -3715,56 +3710,53 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
             if len(seg) < 2:
                 continue
             sx = [x[i] for i in seg]
-            s10 = [p10[i] for i in seg]
+            sm = [mean_v[i] for i in seg]
             s25 = [p25[i] for i in seg]
-            s50 = [p50[i] for i in seg]
             s75 = [p75[i] for i in seg]
-            s90 = [p90[i] for i in seg]
-            # Single band P25-P75 (less visual noise with 4 repos overlapping)
-            ax.fill_between(sx, s25, s75, color=color, alpha=0.18,
+            ax.fill_between(sx, s25, s75, color=color, alpha=0.15,
                             label=f"{short} P25-P75" if first else None)
-            ax.plot(sx, s50, color=color, linewidth=2.4, alpha=0.95,
-                    label=f"{short} P50" if first else None)
+            ax.plot(sx, sm, color=color, linewidth=2.4, alpha=0.95,
+                    label=f"{short} mean" if first else None)
             first = False
             visible_data.extend(s75)
         largest = max(segments, key=len)
         if len(largest) >= 2:
             line_ends.append(([x[i] for i in largest],
-                              [p50[i] for i in largest], short, color))
+                              [mean_v[i] for i in largest], short, color))
         for seg in segments:
             if len(seg) >= 2:
                 for i in seg:
-                    days_global.add(x[i])
+                    weeks_global.add(x[i])
 
-    if not any_data or not days_global:
+    if not any_data or not weeks_global:
         plt.close(fig)
-        print("  (skipping pushes-per-pr — no complete-coverage days)")
+        print("  (skipping pushes-per-pr — no complete-coverage weeks)")
         return
 
     if visible_data:
-        # Cap y at the 95th percentile of P75 values to keep median readable;
-        # P90 outliers (and even some P75 spikes) extend outside the visible
-        # area on purpose — the legend still shows them as bands.
+        # Cap y at the 95th percentile of P75 values to keep the means readable;
+        # P90+ outliers extend outside the visible area on purpose.
         import numpy as np
         ymax = float(np.percentile(visible_data, 95)) * 1.4
         ax.set_ylim(0, max(ymax, 5))
 
-    xmin = min(days_global) - timedelta(days=1)
-    xmax = max(days_global) + timedelta(days=3)
+    xmin = min(weeks_global) - timedelta(days=3)
+    xmax = max(weeks_global) + timedelta(days=10)
     ax.set_xlim(xmin, xmax)
-    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0, interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
 
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Solid line = P50 (median) pushes/PR; band = P25-P75",
+        "Solid line = mean pushes/PR per merge week; band = P25-P75 of the per-PR distribution",
         f"A 'push' = git push event triggering CI. Commits within "
         f"{PUSH_CLUSTER_GAP_MINUTES} min are clustered as one push.",
         "Counts both regular pushes and force-pushes (timeline events)",
-        f"Daily evaluation with {ROLLING_DAYS}-day trailing window of merged PRs",
+        f"Per-PR push count capped at {MAX_PUSHES_PER_PR} to suppress stuck/auto-merge-loop PRs",
+        f"Weeks with <{MIN_PRS_PER_WEEK} merged PRs or <70% event-coverage are dropped",
         "Caveat: committed-event timestamps reflect commit time (close to push "
         "after rebase, can diverge if commits are made locally then pushed later)",
     ], loc="lower right")
