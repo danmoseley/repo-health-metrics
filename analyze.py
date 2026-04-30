@@ -3626,8 +3626,9 @@ def cluster_pushes(timestamps, gap_minutes=PUSH_CLUSTER_GAP_MINUTES):
 
 def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
     """Mean CI-triggering pushes per merged PR, bucketed by merge week.
-    Mean (rather than median) gives a continuous y-axis that responds to
-    small distribution shifts; the band shows P25-P75 of the per-PR distribution."""
+    Mean (rather than median) gives a continuous y-axis that responds to small
+    distribution shifts. Plotted as scatter dots (per-week means) with a
+    per-repo linear regression line, plus a first-3mo vs last-3mo stats table."""
     import numpy as np
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(
@@ -3685,7 +3686,7 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
             continue
         any_data = True
 
-        x, mean_v, p25, p75 = [], [], [], []
+        x, mean_v = [], []
         cur_week = week_start(today)
         for w in sorted(push_counts):
             if w >= cur_week:
@@ -3698,8 +3699,6 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
                 continue
             x.append(w)
             mean_v.append(float(np.mean(vals)))
-            p25.append(float(np.percentile(vals, 25)))
-            p75.append(float(np.percentile(vals, 75)))
         if not x:
             continue
 
@@ -3728,8 +3727,9 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
         return
 
     if visible_data:
-        # Cap y at the 95th percentile of P75 values to keep the means readable;
-        # P90+ outliers extend outside the visible area on purpose.
+        # Cap y using the 95th percentile of the visible series values
+        # (weekly means) to keep the trend readable; weekly outlier means
+        # extend outside the visible area on purpose.
         import numpy as np
         ymax = float(np.percentile(visible_data, 95)) * 1.4
         ax.set_ylim(0, max(ymax, 5))

@@ -93,7 +93,7 @@ def init_db(db_path):
             event_id TEXT NOT NULL,         -- commit SHA or numeric event id
             kind TEXT NOT NULL,             -- 'committed' or 'force_pushed'
             ts TEXT NOT NULL,               -- ISO timestamp
-            PRIMARY KEY (repo, number, event_id)
+            PRIMARY KEY (repo, number, kind, event_id)
         );
         CREATE INDEX IF NOT EXISTS idx_pr_push_events_repo_number
             ON pr_push_events(repo, number);
@@ -207,12 +207,21 @@ def fetch_pr_timeline(session, repo, number):
 
 def select_prs_to_fetch(conn, repo, since_iso, refresh_open):
     """Return list of PR numbers to fetch.
-    - All merged PRs created on/after since_iso, not yet recorded as complete
-    - Plus open PRs and recently-closed PRs if refresh_open=True"""
+
+    Selection rule (catches long-lived PRs whose merge falls inside the window
+    even though the create date is earlier — important because the chart
+    buckets by merge_at):
+      - merged PRs whose merged_at >= since_iso, not yet recorded as complete
+      - plus open + recently-closed PRs if refresh_open=True
+    Unmerged-and-closed PRs are skipped (the chart only uses merged PRs).
+    """
     rows = conn.execute(
         "SELECT number, state, merged_at, closed_at FROM items "
-        "WHERE repo = ? AND is_pull_request = 1 AND created_at >= ?",
-        (repo, since_iso),
+        "WHERE repo = ? AND is_pull_request = 1 "
+        "  AND ((merged_at IS NOT NULL AND merged_at >= ?) "
+        "       OR state IN ('OPEN', 'open') "
+        "       OR closed_at >= ?)",
+        (repo, since_iso, since_iso),
     ).fetchall()
 
     progress = dict(conn.execute(
@@ -220,13 +229,16 @@ def select_prs_to_fetch(conn, repo, since_iso, refresh_open):
         (repo,)
     ).fetchall())
 
-    recent_cutoff = (datetime.now(timezone.utc) - timedelta(days=RECENT_CLOSED_DAYS)).isoformat()
+    # Normalize comparison cutoff to the same '...Z' form GitHub uses, so
+    # lexicographic string comparison against closed_at works correctly.
+    recent_cutoff_dt = datetime.now(timezone.utc) - timedelta(days=RECENT_CLOSED_DAYS)
+    recent_cutoff = recent_cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     result = []
     for number, state, merged_at, closed_at in rows:
         already_complete = progress.get(number) == 1
+        is_open = state in ("OPEN", "open")
         is_merged = bool(merged_at)
-        is_open = state == "OPEN" or (state == "open")
         if refresh_open and is_open:
             result.append(number)
             continue
@@ -235,7 +247,9 @@ def select_prs_to_fetch(conn, repo, since_iso, refresh_open):
             continue
         if already_complete:
             continue
-        # Otherwise: fetch if we don't have it yet
+        # Skip PRs that closed without merging — the chart uses merged PRs only
+        if not is_merged and not is_open:
+            continue
         result.append(number)
     return sorted(result)
 
