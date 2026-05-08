@@ -374,13 +374,17 @@ UPSERT_SQL = (
     "merged_at, labels, author, merged_by) "
     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
     "ON CONFLICT(repo, number) DO UPDATE SET "
+    # Prefer existing created_at — avoids NULL overwrites from partial API responses
     "  created_at      = COALESCE(items.created_at, excluded.created_at), "
     "  is_pull_request = MAX(items.is_pull_request, excluded.is_pull_request), "
     "  closed_at       = excluded.closed_at, "
     "  state           = excluded.state, "
+    # Prefer new merged_at — REST /pulls endpoint is authoritative
     "  merged_at       = COALESCE(excluded.merged_at, items.merged_at), "
     "  labels          = excluded.labels, "
+    # Prefer existing author — set once, may have been enriched by fetch_issue_authors.py
     "  author          = COALESCE(items.author, excluded.author), "
+    # Prefer new merged_by — may arrive later from hydration or fetch_mergers.py
     "  merged_by       = COALESCE(excluded.merged_by, items.merged_by)"
 )
 
@@ -624,6 +628,9 @@ def hydrate_merged_by(conn, session, repo, request_delay):
 
         # If GitHub truly has no merged_by, mark as '' so future --hydrate
         # runs skip this PR instead of re-fetching it every time.
+        # Note: '' is used as a "checked, no value" sentinel. fetch_mergers.py
+        # also skips rows where merged_by = '', so once marked, these PRs won't
+        # be re-checked unless the sentinel is manually cleared.
         if merged_by_val is None:
             for _attempt in range(5):
                 try:

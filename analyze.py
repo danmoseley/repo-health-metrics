@@ -3831,6 +3831,947 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
     print(f"  {path}")
 
 
+# ============================================================================
+# REVIEW METRICS — Copilot Code Review effectiveness charts
+# ============================================================================
+
+REVIEW_CHART_REPOS = ("dotnet/runtime", "dotnet/roslyn", "microsoft/aspire")
+
+
+def load_review_data(conn, repo):
+    """Load all review-related data for a repo from the review tables.
+    Returns dict with keys: reviews, comments, commits, or empty dict if tables missing."""
+    try:
+        reviews = conn.execute(
+            "SELECT number, author, author_type, state, submitted_at "
+            "FROM pr_reviews WHERE repo = ? ORDER BY number, submitted_at",
+            (repo,)
+        ).fetchall()
+        comments = conn.execute(
+            "SELECT number, author, author_type, body_has_suggestion, is_resolved, created_at "
+            "FROM pr_review_comments WHERE repo = ? ORDER BY number, created_at",
+            (repo,)
+        ).fetchall()
+        commits = conn.execute(
+            "SELECT number, sha, committed_date, additions, deletions, message "
+            "FROM pr_commit_stats WHERE repo = ? ORDER BY number, committed_date",
+            (repo,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    # Organize by PR number
+    from collections import defaultdict
+    reviews_by_pr = defaultdict(list)
+    for num, author, atype, state, ts in reviews:
+        reviews_by_pr[num].append({
+            "author": author, "author_type": atype, "state": state, "submitted_at": ts
+        })
+    comments_by_pr = defaultdict(list)
+    for num, author, atype, has_sugg, resolved, ts in comments:
+        comments_by_pr[num].append({
+            "author": author, "author_type": atype,
+            "body_has_suggestion": has_sugg, "is_resolved": resolved, "created_at": ts
+        })
+    commits_by_pr = defaultdict(list)
+    for num, sha, cdate, adds, dels, msg in commits:
+        commits_by_pr[num].append({
+            "sha": sha, "committed_date": cdate,
+            "additions": adds or 0, "deletions": dels or 0, "message": msg or ""
+        })
+    return {
+        "reviews_by_pr": dict(reviews_by_pr),
+        "comments_by_pr": dict(comments_by_pr),
+        "commits_by_pr": dict(commits_by_pr),
+    }
+
+
+def _is_copilot_reviewer(author):
+    """Check if an author is the Copilot code review bot."""
+    return author and "copilot" in author.lower() and "swe" not in author.lower()
+
+
+def _first_human_review_ts(reviews):
+    """Get timestamp of first human review (any state) on a PR."""
+    for r in reviews:
+        if r["author_type"] == "User":
+            return r["submitted_at"]
+    return None
+
+
+def _first_copilot_review_ts(reviews):
+    """Get timestamp of first Copilot review on a PR."""
+    for r in reviews:
+        if _is_copilot_reviewer(r["author"]):
+            return r["submitted_at"]
+    return None
+
+
+# Minimum Copilot-reviewed merged PRs for a repo to appear in comparison charts
+_MIN_COPILOT_PRS = 50
+
+
+def _repos_with_copilot_activity(all_items, review_data):
+    """Return repos from REVIEW_CHART_REPOS with meaningful Copilot review activity."""
+    result = []
+    for repo in REVIEW_CHART_REPOS:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        reviews_by_pr = rd["reviews_by_pr"]
+        copilot_count = sum(
+            1 for i in items
+            if i.get("is_pr") and i.get("merged_at")
+            and any(_is_copilot_reviewer(r["author"])
+                    for r in reviews_by_pr.get(i["number"], []))
+        )
+        if copilot_count >= _MIN_COPILOT_PRS:
+            result.append(repo)
+    return result
+
+
+def chart_review_churn_before_after_human(all_items, review_data, output_dir):
+    """⭐ Code Churn Before vs After First Human Touch.
+    Lines changed after first human review as % of total lines changed.
+    Lower = humans find less to fix = Copilot/process caught issues early."""
+    from statistics import median
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Code Churn After First Human Review — % of Total (4-week rolling P50)",
+               "% of lines changed after human review")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        commits_by_pr = rd["commits_by_pr"]
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        ratio_by_week = defaultdict(list)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            commits = commits_by_pr.get(num, [])
+            reviews = reviews_by_pr.get(num, [])
+            if len(commits) < 2:
+                continue  # Need at least 2 commits to measure before/after
+            first_human_ts = _first_human_review_ts(reviews)
+            if not first_human_ts:
+                continue  # No human review — can't split
+
+            # Sum lines before/after first human review
+            total_lines = 0
+            after_lines = 0
+            for c in commits:
+                lines = c["additions"] + c["deletions"]
+                total_lines += lines
+                if c["committed_date"] and c["committed_date"] > first_human_ts:
+                    after_lines += lines
+            if total_lines < 10 or total_lines > 10000:
+                continue  # skip trivial and bulk PRs that dominate the metric
+            ratio = 100.0 * after_lines / total_lines
+
+            cd = parse_date(item["created_at"])
+            if cd and cd >= cutoff:
+                ratio_by_week[week_start(cd)].append(ratio)
+
+        if not ratio_by_week:
+            continue
+        # Weekly P50 with 4-week rolling window
+        weeks_x, p50s = [], []
+        w = max(min(ratio_by_week.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            window_vals = []
+            for k in range(4):
+                window_vals.extend(ratio_by_week.get(w - timedelta(weeks=k), []))
+            if len(window_vals) >= 5:
+                weeks_x.append(w)
+                p50s.append(median(window_vals))
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, p50s, color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        visible_data.append(p50s)
+        line_ends.append((weeks_x, p50s, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping review churn — no data)")
+        return
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, min(ymax, 100))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "What % of a PR's total code changes happen AFTER the first human review comment?",
+        "Lower = humans find less to rework = earlier feedback catches issues",
+        "P50 of per-PR ratios; PRs with <2 commits, <10 or >10K LOC excluded",
+        "LOC cap filters bulk imports/generated code that cause large oscillations",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_churn_after_human.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_copilot_comment_density(all_items, review_data, output_dir):
+    """Copilot Review Comment Density — comments per 100 lines changed, weekly trend."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot Review Comments per 100 Lines Changed (4-week rolling mean)",
+               "Comments / 100 LOC")
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        comments_by_pr = rd["comments_by_pr"]
+        commits_by_pr = rd["commits_by_pr"]
+
+        density_by_week = defaultdict(list)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            copilot_comments = [c for c in comments_by_pr.get(num, [])
+                                if _is_copilot_reviewer(c["author"])]
+            if not copilot_comments:
+                continue  # only PRs Copilot actually reviewed
+            commits = commits_by_pr.get(num, [])
+            loc = sum(c["additions"] + c["deletions"] for c in commits)
+            if loc < 10:
+                continue  # skip trivial PRs
+            cd = parse_date(item["created_at"])
+            if cd and cd >= cutoff:
+                density_by_week[week_start(cd)].append(len(copilot_comments) * 100.0 / loc)
+
+        if not density_by_week:
+            continue
+        weeks_x, means = [], []
+        w = max(min(density_by_week.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            window_vals = []
+            for k in range(4):
+                window_vals.extend(density_by_week.get(w - timedelta(weeks=k), []))
+            if len(window_vals) >= 5:
+                weeks_x.append(w)
+                means.append(sum(window_vals) / len(window_vals))
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, means, color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        visible_data.append(means)
+        line_ends.append((weeks_x, means, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping copilot comment density — no data)")
+        return
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Copilot review comments per 100 lines changed (additions + deletions)",
+        "Normalized by PR size so large PRs don't inflate the metric",
+        "Only Copilot-reviewed PRs with ≥10 LOC; coverage tracked separately",
+        "Rising = Copilot finding more per line; declining = cleaner code or lighter touch",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_copilot_comment_density.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_human_comments_comparison(all_items, review_data, output_dir):
+    """Human comments on Copilot-reviewed PRs vs non-Copilot-reviewed PRs."""
+    from statistics import median
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Human Review Comments — Copilot-Reviewed vs Not (4-week rolling mean)",
+               "Human comments / PR")
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        comments_by_pr = rd["comments_by_pr"]
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        copilot_by_week = defaultdict(list)
+        no_copilot_by_week = defaultdict(list)
+
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            reviews = reviews_by_pr.get(num, [])
+            has_copilot = any(_is_copilot_reviewer(r["author"]) for r in reviews)
+            human_count = sum(1 for c in comments_by_pr.get(num, [])
+                             if c["author_type"] == "User")
+            cd = parse_date(item["created_at"])
+            if not cd or cd < cutoff:
+                continue
+            wk = week_start(cd)
+            if has_copilot:
+                copilot_by_week[wk].append(human_count)
+            else:
+                no_copilot_by_week[wk].append(human_count)
+
+        # Plot both lines using repo color; solid = copilot-reviewed, dashed = not
+        repo_color = get_color(repo)
+        short = get_short(repo)
+        for label_suffix, data, ls, lw, min_pts in [
+            ("w/ Copilot", copilot_by_week, "-", 2.5, 10),
+            ("w/o Copilot", no_copilot_by_week, "--", 1.5, 5),
+        ]:
+            if not data:
+                continue
+            weeks_x, means = [], []
+            w = max(min(data.keys()), cutoff)
+            w = week_start(w)
+            while w <= last_complete_week:
+                window_vals = []
+                for k in range(4):
+                    window_vals.extend(data.get(w - timedelta(weeks=k), []))
+                if len(window_vals) >= min_pts:
+                    weeks_x.append(w)
+                    means.append(sum(window_vals) / len(window_vals))
+                w += timedelta(weeks=1)
+            if weeks_x:
+                ax.plot(weeks_x, means, color=repo_color,
+                        label=f"{short} {label_suffix}",
+                        linewidth=lw, alpha=0.85, linestyle=ls)
+
+    ax.set_ylim(0, None)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "If Copilot catches issues early, humans should need fewer comments",
+        "Solid = PRs with Copilot review; Dashed = PRs without (same color = same repo)",
+        "Gap between lines = Copilot's impact on reducing human review burden",
+        "Includes all merged PRs; human comments from all non-bot reviewers",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_human_comments_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_suggestion_rate(all_items, review_data, output_dir):
+    """Copilot Suggestion Rate — % of Copilot comments containing code suggestions."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)",
+               "% with suggestions")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        comments_by_pr = rd["comments_by_pr"]
+
+        by_week_total = defaultdict(int)
+        by_week_sugg = defaultdict(int)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            cd = parse_date(item["created_at"])
+            if not cd or cd < cutoff:
+                continue
+            wk = week_start(cd)
+            for c in comments_by_pr.get(num, []):
+                if _is_copilot_reviewer(c["author"]):
+                    by_week_total[wk] += 1
+                    if c["body_has_suggestion"]:
+                        by_week_sugg[wk] += 1
+
+        if not by_week_total:
+            continue
+        weeks_x, pcts = [], []
+        w = max(min(by_week_total.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            total = sum(by_week_total.get(w - timedelta(weeks=k), 0) for k in range(4))
+            sugg = sum(by_week_sugg.get(w - timedelta(weeks=k), 0) for k in range(4))
+            if total >= 5:
+                weeks_x.append(w)
+                pcts.append(100.0 * sugg / total)
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, pcts, color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        visible_data.append(pcts)
+        line_ends.append((weeks_x, pcts, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping suggestion rate — no data)")
+        return
+    ax.set_ylim(0, 100)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "What % of Copilot review comments include a concrete code suggestion?",
+        "Higher = more actionable feedback (developers can click 'Apply')",
+        "Suggestions detected via ```suggestion``` blocks in comment body",
+        "Trend reflects Copilot's ability to propose specific fixes, not just flag issues",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_suggestion_rate.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_time_to_first_feedback(all_items, review_data, output_dir):
+    """Time to First Actionable Feedback — Copilot vs Human, P50 hours."""
+    from statistics import median
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Time to First Review Feedback — Copilot vs Human (P50 hours, 4-week rolling)",
+               "Hours")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        copilot_by_week = defaultdict(list)
+        human_by_week = defaultdict(list)
+
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            reviews = reviews_by_pr.get(num, [])
+            cd = parse_date(item["created_at"])
+            if not cd or cd < cutoff:
+                continue
+            try:
+                created_dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+            wk = week_start(cd)
+
+            first_copilot = _first_copilot_review_ts(reviews)
+            first_human = _first_human_review_ts(reviews)
+
+            if first_copilot:
+                try:
+                    dt = datetime.fromisoformat(first_copilot.replace("Z", "+00:00"))
+                    hours = (dt - created_dt).total_seconds() / 3600
+                    if 0 <= hours < 168:  # Cap at 1 week
+                        copilot_by_week[wk].append(hours)
+                except (ValueError, AttributeError):
+                    pass
+            if first_human:
+                try:
+                    dt = datetime.fromisoformat(first_human.replace("Z", "+00:00"))
+                    hours = (dt - created_dt).total_seconds() / 3600
+                    if 0 <= hours < 168:
+                        human_by_week[wk].append(hours)
+                except (ValueError, AttributeError):
+                    pass
+
+        repo_color = get_color(repo)
+        short = get_short(repo)
+        for label_suffix, data, ls, lw in [
+            ("Copilot", copilot_by_week, "-", 2.5),
+            ("Human", human_by_week, "--", 1.5),
+        ]:
+            if not data:
+                continue
+            weeks_x, p50s = [], []
+            w = max(min(data.keys()), cutoff)
+            w = week_start(w)
+            while w <= last_complete_week:
+                window_vals = []
+                for k in range(4):
+                    window_vals.extend(data.get(w - timedelta(weeks=k), []))
+                if len(window_vals) >= 3:
+                    weeks_x.append(w)
+                    p50s.append(median(window_vals))
+                w += timedelta(weeks=1)
+            if weeks_x:
+                ax.plot(weeks_x, p50s, color=repo_color,
+                        label=f"{short} {label_suffix}",
+                        linewidth=lw, alpha=0.85, linestyle=ls)
+
+    ax.set_ylim(0, None)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "How quickly does a PR get its first review feedback?",
+        "Solid = first Copilot review; Dashed = first human review (same color = same repo)",
+        "Copilot reviews are near-instant (minutes); humans take hours/days",
+        "The gap shows Copilot's 24/7 coverage advantage — feedback while you sleep",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_time_to_first_feedback.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_copilot_to_human_approval(all_items, review_data, output_dir):
+    """Copilot Review → Human Approval — time from Copilot review to human APPROVED."""
+    from statistics import median
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot Review → Human Approval (P50 hours, 4-week rolling)",
+               "Hours")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        hours_by_week = defaultdict(list)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            reviews = reviews_by_pr.get(num, [])
+            cd = parse_date(item["created_at"])
+            if not cd or cd < cutoff:
+                continue
+
+            first_copilot = _first_copilot_review_ts(reviews)
+            if not first_copilot:
+                continue
+            # Find first human APPROVED after Copilot review
+            first_approval = None
+            for r in reviews:
+                if (r["author_type"] == "User" and r["state"] == "APPROVED"
+                        and r["submitted_at"] and r["submitted_at"] > first_copilot):
+                    first_approval = r["submitted_at"]
+                    break
+            if not first_approval:
+                continue
+            try:
+                cop_dt = datetime.fromisoformat(first_copilot.replace("Z", "+00:00"))
+                app_dt = datetime.fromisoformat(first_approval.replace("Z", "+00:00"))
+                hours = (app_dt - cop_dt).total_seconds() / 3600
+                if 0 < hours < 168:  # 0-7 days
+                    hours_by_week[week_start(cd)].append(hours)
+            except (ValueError, AttributeError):
+                continue
+
+        if not hours_by_week:
+            continue
+        weeks_x, p50s = [], []
+        w = max(min(hours_by_week.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            window_vals = []
+            for k in range(4):
+                window_vals.extend(hours_by_week.get(w - timedelta(weeks=k), []))
+            if len(window_vals) >= 3:
+                weeks_x.append(w)
+                p50s.append(median(window_vals))
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, p50s, color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        visible_data.append(p50s)
+        line_ends.append((weeks_x, p50s, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping copilot-to-approval — no data)")
+        return
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "down")
+    add_insight_box(ax, [
+        "After Copilot reviews a PR, how long until a human approves it?",
+        "Shrinking gap = humans trust Copilot's pre-screen and approve faster",
+        "Only includes PRs where Copilot reviewed AND human later approved",
+        "Declining trend suggests growing trust in Copilot as first-pass reviewer",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_copilot_to_approval.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_human_participation(all_items, review_data, output_dir):
+    """Human Reviewer Participation Rate — distinct human reviewers per PR."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Human Reviewers per PR (4-week rolling mean)", "Distinct reviewers / PR")
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        count_by_week = defaultdict(list)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            reviews = reviews_by_pr.get(num, [])
+            human_reviewers = set(r["author"] for r in reviews
+                                  if r["author_type"] == "User" and r["author"])
+            cd = parse_date(item["created_at"])
+            if cd and cd >= cutoff:
+                count_by_week[week_start(cd)].append(len(human_reviewers))
+
+        if not count_by_week:
+            continue
+        weeks_x, means = [], []
+        w = max(min(count_by_week.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            window_vals = []
+            for k in range(4):
+                window_vals.extend(count_by_week.get(w - timedelta(weeks=k), []))
+            if len(window_vals) >= 5:
+                weeks_x.append(w)
+                means.append(sum(window_vals) / len(window_vals))
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, means, color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        visible_data.append(means)
+        line_ends.append((weeks_x, means, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping human participation — no data)")
+        return
+
+    # Combined linear regression across all repos
+    import numpy as np
+    all_weeks_combined = defaultdict(list)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        reviews_by_pr = rd["reviews_by_pr"]
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            reviews = reviews_by_pr.get(num, [])
+            human_reviewers = set(r["author"] for r in reviews
+                                  if r["author_type"] == "User" and r["author"])
+            cd = parse_date(item["created_at"])
+            if cd and cd >= cutoff:
+                all_weeks_combined[week_start(cd)].append(len(human_reviewers))
+    combined_x, combined_y = [], []
+    w = min(all_weeks_combined.keys()) if all_weeks_combined else cutoff
+    w = week_start(w)
+    while w <= last_complete_week:
+        window_vals = []
+        for k in range(4):
+            window_vals.extend(all_weeks_combined.get(w - timedelta(weeks=k), []))
+        if len(window_vals) >= 5:
+            combined_x.append(w)
+            combined_y.append(sum(window_vals) / len(window_vals))
+        w += timedelta(weeks=1)
+    if len(combined_x) >= 2:
+        x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
+        y_arr = np.array(combined_y, dtype=float)
+        coeffs = np.polyfit(x_numeric, y_arr, 1)
+        trend_y = np.polyval(coeffs, x_numeric)
+        ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
+                alpha=0.7, label="Combined trend")
+
+    ymin, ymax = robust_ylim(visible_data)
+    ax.set_ylim(0, ymax)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_insight_box(ax, [
+        "Average distinct human reviewers who leave reviews per merged PR",
+        "If Copilot review is trusted, fewer humans may need to pile on",
+        "Stable or slight decline = healthy — one trusted reviewer is enough",
+        "Sharp decline could indicate review abandonment (watch alongside merge rate)",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_human_participation.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_copilot_coverage(all_items, review_data, output_dir):
+    """Copilot Review Coverage — % of merged PRs that received Copilot review."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "Copilot Review Coverage — % of Merged PRs Reviewed (4-week rolling)",
+               "% of PRs")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    visible_data = []
+    line_ends = []
+    for repo in REVIEW_CHART_REPOS:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        total_by_week = defaultdict(int)
+        copilot_by_week = defaultdict(int)
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            cd = parse_date(item["created_at"])
+            if not cd or cd < cutoff:
+                continue
+            wk = week_start(cd)
+            total_by_week[wk] += 1
+            reviews = reviews_by_pr.get(num, [])
+            if any(_is_copilot_reviewer(r["author"]) for r in reviews):
+                copilot_by_week[wk] += 1
+
+        if not total_by_week:
+            continue
+        weeks_x, pcts = [], []
+        w = max(min(total_by_week.keys()), cutoff)
+        w = week_start(w)
+        while w <= last_complete_week:
+            total = sum(total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+            cop = sum(copilot_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+            if total >= 5:
+                weeks_x.append(w)
+                pcts.append(100.0 * cop / total)
+            w += timedelta(weeks=1)
+        if not weeks_x:
+            continue
+        ax.plot(weeks_x, pcts, color=get_color(repo), label=get_short(repo),
+                linewidth=2, alpha=0.85)
+        visible_data.append(pcts)
+        line_ends.append((weeks_x, pcts, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        print("  (skipping copilot coverage — no data)")
+        return
+    ax.set_ylim(0, 100)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
+    add_insight_box(ax, [
+        "What % of merged PRs received at least one Copilot code review?",
+        "Higher = broader coverage, more PRs getting automated first-pass review",
+        "Rapid adoption since May 2025; now covers majority of runtime PRs",
+        "100% coverage not expected — some PRs (bot-authored, trivial) skip review",
+    ])
+    fig.tight_layout()
+    path = os.path.join(output_dir, "review_copilot_coverage.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_review_churn_copilot_vs_human(all_items, review_data, output_dir):
+    """Post-Copilot-Review Churn vs Post-Human-Review Churn.
+    Three-phase partition: before any review, after Copilot but before human, after human."""
+    from statistics import median
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    last_complete_week = week_start(today) - timedelta(weeks=1)
+
+    active_repos = _repos_with_copilot_activity(all_items, review_data)
+    for repo in active_repos:
+        items = all_items.get(repo)
+        rd = review_data.get(repo)
+        if not items or not rd:
+            continue
+        commits_by_pr = rd["commits_by_pr"]
+        reviews_by_pr = rd["reviews_by_pr"]
+
+        post_copilot_by_week = defaultdict(list)
+        post_human_by_week = defaultdict(list)
+
+        for item in items:
+            if not item.get("is_pr") or not item.get("merged_at"):
+                continue
+            num = item["number"]
+            commits = commits_by_pr.get(num, [])
+            reviews = reviews_by_pr.get(num, [])
+            if not commits:
+                continue
+
+            first_copilot = _first_copilot_review_ts(reviews)
+            first_human = _first_human_review_ts(reviews)
+            if not first_copilot or not first_human:
+                continue  # Need both phases
+            if first_copilot >= first_human:
+                continue  # Copilot must review before human for this analysis
+
+            cd = parse_date(item["created_at"])
+            if not cd or cd < cutoff:
+                continue
+            wk = week_start(cd)
+
+            # Phase B: after Copilot, before human
+            phase_b = sum(c["additions"] + c["deletions"] for c in commits
+                         if c["committed_date"] and first_copilot < c["committed_date"] <= first_human)
+            # Phase C: after human
+            phase_c = sum(c["additions"] + c["deletions"] for c in commits
+                         if c["committed_date"] and c["committed_date"] > first_human)
+
+            total = sum(c["additions"] + c["deletions"] for c in commits)
+            if total < 10 or total > 10000:
+                continue  # skip trivial and bulk PRs
+            post_copilot_by_week[wk].append(100.0 * phase_b / total)
+            post_human_by_week[wk].append(100.0 * phase_c / total)
+
+        # Plot each phase using repo color
+        repo_color = get_color(repo)
+        short = get_short(repo)
+        for ax_idx, (data, title_suffix) in enumerate([
+            (post_copilot_by_week, "After Copilot Review, Before Human"),
+            (post_human_by_week, "After Human Review"),
+        ]):
+            ax = axes[ax_idx]
+            if ax_idx == 0 or repo == REVIEW_CHART_REPOS[0]:
+                setup_axes(ax, f"Churn {title_suffix}\n(% of total, P50, 4-week rolling)",
+                           "% of total lines")
+                ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
+
+            if not data:
+                continue
+            weeks_x, p50s = [], []
+            w = max(min(data.keys()), cutoff)
+            w = week_start(w)
+            while w <= last_complete_week:
+                window_vals = []
+                for k in range(4):
+                    window_vals.extend(data.get(w - timedelta(weeks=k), []))
+                if len(window_vals) >= 3:
+                    weeks_x.append(w)
+                    p50s.append(median(window_vals))
+                w += timedelta(weeks=1)
+            if weeks_x:
+                ax.plot(weeks_x, p50s, color=repo_color, label=short,
+                        linewidth=2, alpha=0.85)
+                max_val = max(p50s) if p50s else 50
+                ax.set_ylim(0, max(min(max_val * 1.5, 100), 1))
+                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+                ax.xaxis.set_minor_locator(mdates.MonthLocator())
+                ax.legend(loc="upper right", fontsize=9)
+
+    fig.suptitle("Code Churn by Review Phase (Copilot reviews first → Human reviews second)",
+                 fontsize=13, fontweight="bold", y=0.98)
+    _stamp_chart(axes[0], "Code Churn by Review Phase")
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    path = os.path.join(output_dir, "review_churn_by_phase.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate repo health charts")
@@ -3926,6 +4867,19 @@ def main():
                 print(f"  {repo}: {len(pe)} PRs with push events")
     print()
 
+    print("Loading review data...")
+    all_review_data = {}
+    for repo in repos:
+        if repo in REVIEW_CHART_REPOS:
+            rd = load_review_data(conn, repo)
+            if rd:
+                all_review_data[repo] = rd
+                print(f"  {repo}: {len(rd['reviews_by_pr'])} PRs with reviews, "
+                      f"{len(rd['commits_by_pr'])} with commit stats")
+            else:
+                print(f"  {repo}: no review data")
+    print()
+
     # Generate charts
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
@@ -3978,6 +4932,19 @@ def main():
     # Per-repo dashboards
     for repo in repos:
         chart_per_repo_dashboard(repo, all_series.get(repo), output_dir)
+
+    # Review metric charts (Copilot Code Review effectiveness)
+    if all_review_data:
+        print("\n  --- Review Metrics (Copilot Code Review) ---")
+        chart_review_copilot_coverage(all_items, all_review_data, output_dir)
+        chart_review_copilot_comment_density(all_items, all_review_data, output_dir)
+        chart_review_suggestion_rate(all_items, all_review_data, output_dir)
+        chart_review_human_comments_comparison(all_items, all_review_data, output_dir)
+        chart_review_churn_before_after_human(all_items, all_review_data, output_dir)
+        chart_review_churn_copilot_vs_human(all_items, all_review_data, output_dir)
+        chart_review_time_to_first_feedback(all_items, all_review_data, output_dir)
+        chart_review_copilot_to_human_approval(all_items, all_review_data, output_dir)
+        chart_review_human_participation(all_items, all_review_data, output_dir)
 
     write_chart_registry(output_dir)
     conn.close()
