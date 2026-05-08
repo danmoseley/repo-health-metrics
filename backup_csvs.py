@@ -32,34 +32,42 @@ import sys
 DEFAULT_DB = "pr-dashboard.db"
 DATA_DIR = "data"
 
-# (table_name, csv_filename, columns) — gzip if filename ends in .gz
+# (table_name, csv_filename, columns, order_by) — gzip if filename ends in .gz
 EXPORTS = [
     ("pr_first_comment",
      "pr_first_comment.csv",
-     ["repo", "number", "first_comment_at", "commenter"]),
+     ["repo", "number", "first_comment_at", "commenter"],
+     "repo, number"),
     ("pr_push_events",
      "pr_push_events.csv.gz",
-     ["repo", "number", "event_id", "kind", "ts"]),
+     ["repo", "number", "event_id", "kind", "ts"],
+     "repo, number, ts, event_id"),
     ("pr_push_progress",
      "pr_push_progress.csv",
-     ["repo", "number", "last_fetched_at", "is_complete"]),
+     ["repo", "number", "last_fetched_at", "is_complete"],
+     "repo, number"),
     ("pr_reviews",
      "pr_reviews.csv.gz",
      ["repo", "number", "review_id", "author", "author_type",
-      "state", "submitted_at", "commit_sha"]),
+      "state", "submitted_at", "commit_sha"],
+     "repo, number, review_id"),
     ("pr_review_comments",
      "pr_review_comments.csv.gz",
      ["repo", "number", "comment_id", "review_id", "author", "author_type",
-      "body_has_suggestion", "path", "created_at", "is_resolved", "is_outdated"]),
+      "body_has_suggestion", "path", "created_at", "is_resolved", "is_outdated"],
+     "repo, number, comment_id"),
     ("pr_commit_stats",
      "pr_commit_stats.csv.gz",
-     ["repo", "number", "sha", "committed_date", "additions", "deletions", "message"]),
+     ["repo", "number", "sha", "committed_date", "additions", "deletions", "message"],
+     "repo, number, committed_date, sha"),
     ("review_fetch_progress",
      "review_fetch_progress.csv",
-     ["repo", "number", "status", "fetched_at"]),
+     ["repo", "number", "status", "fetched_at"],
+     "repo, number"),
     ("pr_copilot_issue_comments",
      "pr_copilot_issue_comments.csv",
-     ["repo", "number", "comment_id", "author", "created_at", "body_length"]),
+     ["repo", "number", "comment_id", "author", "created_at", "body_length"],
+     "repo, number, comment_id"),
 ]
 
 
@@ -81,21 +89,12 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
 
-    for table, fname, cols in EXPORTS:
+    for table, fname, cols, order in EXPORTS:
         if not table_exists(conn, table):
             print(f"  (skipping {table}: table does not exist)")
             continue
         path = os.path.join(DATA_DIR, fname)
         col_list = ", ".join(cols)
-        # Stable ordering for reproducible CSV diffs. pr_push_events has many
-        # rows per (repo, number); sort by ts + event_id to keep order
-        # deterministic across runs even if SQLite returns rows in insert order.
-        if table == "pr_push_events":
-            order = "repo, number, ts, event_id"
-        elif len(cols) >= 2:
-            order = f"{cols[0]}, {cols[1]}"
-        else:
-            order = cols[0]
         rows = conn.execute(f"SELECT {col_list} FROM {table} ORDER BY {order}")
         opener = gzip.open if path.endswith(".gz") else open
         n = 0

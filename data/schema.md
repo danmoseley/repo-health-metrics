@@ -197,7 +197,7 @@ Individual code comments left as part of a review.
 | `review_id` | INTEGER | yes | — | Parent review ID |
 | `author` | TEXT | yes | — | Commenter username |
 | `author_type` | TEXT | yes | — | `User`, `Bot` |
-| `body_has_suggestion` | INTEGER | yes | 0 | 1 if contains ` ```suggestion ` block |
+| `body_has_suggestion` | INTEGER | yes | 0 | 1 if contains a suggestion block |
 | `path` | TEXT | yes | — | File path the comment is on |
 | `created_at` | TEXT | yes | — | ISO 8601 timestamp |
 | `is_resolved` | INTEGER | yes | — | 1 if thread resolved, 0 if not, NULL if unmatched |
