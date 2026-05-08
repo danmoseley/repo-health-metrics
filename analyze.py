@@ -4784,14 +4784,14 @@ def chart_review_rubber_stamp_rate(all_items, review_data, output_dir):
 
 
 def chart_review_human_approval_speed(all_items, review_data, output_dir):
-    """Human Approval Speed — hours from first human look to APPROVED.
+    """Human Approval Speed — hours from PR creation to first human APPROVED.
     Compares Copilot-reviewed PRs vs non-Copilot-reviewed PRs.
     If Copilot review is effective, humans approve faster on Copilot-reviewed PRs."""
     from statistics import median
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Human Approval Speed — First Look → Approve (P50 hours, 4-week rolling)",
-               "Hours from first human activity to approval")
+    setup_axes(ax, "Time to Human Approval (P50 hours, 4-week rolling)",
+               "Hours from PR creation to first human APPROVED")
 
     today = datetime.now().date()
     cutoff = today - timedelta(days=365)
@@ -4822,21 +4822,19 @@ def chart_review_human_approval_speed(all_items, review_data, output_dir):
             if not cd or cd < cutoff:
                 continue
 
-            # First human activity (any state)
-            first_human_ts = human_reviews[0]["submitted_at"]
-            # First APPROVED
+            # First APPROVED by a human
             first_approval = None
             for r in human_reviews:
                 if r["state"] == "APPROVED" and r["submitted_at"]:
                     first_approval = r["submitted_at"]
                     break
-            if not first_human_ts or not first_approval:
+            if not first_approval or not item.get("created_at"):
                 continue
             try:
-                h_dt = datetime.fromisoformat(first_human_ts.replace("Z", "+00:00"))
+                created_dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
                 a_dt = datetime.fromisoformat(first_approval.replace("Z", "+00:00"))
-                hours = (a_dt - h_dt).total_seconds() / 3600
-                if hours < 0 or hours > 168:
+                hours = (a_dt - created_dt).total_seconds() / 3600
+                if hours < 0 or hours > 336:  # Cap at 2 weeks
                     continue
             except (ValueError, AttributeError):
                 continue
@@ -4887,10 +4885,10 @@ def chart_review_human_approval_speed(all_items, review_data, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Time from first human review activity to APPROVED (P50 hours)",
+        "Total time from PR creation to first human APPROVED review (P50)",
         "Solid = Copilot-reviewed PRs; Dashed = non-Copilot PRs",
         "If Copilot pre-screens effectively, humans approve faster (less to check)",
-        "Gap between lines = time saved by Copilot's first-pass review",
+        "Includes Copilot review time + author fix time + human review time",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "review_human_approval_speed.png")
@@ -4900,13 +4898,12 @@ def chart_review_human_approval_speed(all_items, review_data, output_dir):
 
 
 def chart_review_iteration_count(all_items, review_data, output_dir):
-    """Review Iteration Count — number of CHANGES_REQUESTED rounds before merge.
+    """Review Iteration Rate — % of PRs that receive ≥1 CHANGES_REQUESTED before merge.
     Compares Copilot-reviewed PRs vs non-Copilot-reviewed PRs."""
-    from statistics import median
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Human Review Rounds (CHANGES_REQUESTED) Before Merge (4-week P50)",
-               "Review rounds per PR")
+    setup_axes(ax, "% of PRs Receiving CHANGES_REQUESTED (4-week rolling)",
+               "% of merged PRs with ≥1 change request")
 
     today = datetime.now().date()
     cutoff = today - timedelta(days=365)
@@ -4922,8 +4919,12 @@ def chart_review_iteration_count(all_items, review_data, output_dir):
             continue
         reviews_by_pr = rd["reviews_by_pr"]
 
-        rounds_copilot_by_week = defaultdict(list)
-        rounds_nocopilot_by_week = defaultdict(list)
+        # Track total and "has changes_requested" per week
+        copilot_total_by_week = defaultdict(int)
+        copilot_cr_by_week = defaultdict(int)
+        nocopilot_total_by_week = defaultdict(int)
+        nocopilot_cr_by_week = defaultdict(int)
+
         for item in items:
             if not item.get("is_pr") or not item.get("merged_at"):
                 continue
@@ -4936,46 +4937,49 @@ def chart_review_iteration_count(all_items, review_data, output_dir):
             if not cd or cd < cutoff:
                 continue
 
-            changes_requested = sum(1 for r in human_reviews
-                                    if r["state"] == "CHANGES_REQUESTED")
+            has_cr = any(r["state"] == "CHANGES_REQUESTED" for r in human_reviews)
             has_copilot = any(_is_copilot_reviewer(r["author"]) for r in reviews)
             wk = week_start(cd)
             if has_copilot:
-                rounds_copilot_by_week[wk].append(changes_requested)
+                copilot_total_by_week[wk] += 1
+                if has_cr:
+                    copilot_cr_by_week[wk] += 1
             else:
-                rounds_nocopilot_by_week[wk].append(changes_requested)
+                nocopilot_total_by_week[wk] += 1
+                if has_cr:
+                    nocopilot_cr_by_week[wk] += 1
 
-        for label_suffix, data_by_week, ls, lw in [
-            ("Copilot", rounds_copilot_by_week, "-", 2.5),
-            ("No Copilot", rounds_nocopilot_by_week, "--", 1.5),
+        for label_suffix, total_by_week, cr_by_week, ls, lw in [
+            ("Copilot", copilot_total_by_week, copilot_cr_by_week, "-", 2.5),
+            ("No Copilot", nocopilot_total_by_week, nocopilot_cr_by_week, "--", 1.5),
         ]:
-            if not data_by_week:
+            if not total_by_week:
                 continue
-            weeks_x, p50s = [], []
-            w = max(min(data_by_week.keys()), cutoff)
+            weeks_x, rates = [], []
+            w = max(min(total_by_week.keys()), cutoff)
             w = week_start(w)
             while w <= last_complete_week:
-                window_vals = []
-                for k in range(4):
-                    window_vals.extend(data_by_week.get(w - timedelta(weeks=k), []))
-                if len(window_vals) >= 5:
+                total = sum(total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+                cr = sum(cr_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+                if total >= 5:
                     weeks_x.append(w)
-                    p50s.append(median(window_vals))
+                    rates.append(100 * cr / total)
                 w += timedelta(weeks=1)
             if not weeks_x:
                 continue
             lbl = f"{get_short(repo)} {label_suffix}"
-            ax.plot(weeks_x, p50s, color=get_color(repo), linestyle=ls,
+            ax.plot(weeks_x, rates, color=get_color(repo), linestyle=ls,
                     linewidth=lw, label=lbl, alpha=0.85)
-            visible_data.append(p50s)
-            line_ends.append((weeks_x, p50s, lbl, get_color(repo)))
+            visible_data.append(rates)
+            line_ends.append((weeks_x, rates, lbl, get_color(repo)))
 
     if not visible_data:
         plt.close(fig)
         print("  (skipping review iteration count — no data)")
         return
     ymin, ymax = robust_ylim(visible_data)
-    ax.set_ylim(0, max(ymax, 2))
+    ax.set_ylim(0, min(ymax, 100))
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0f}%"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
@@ -4983,10 +4987,10 @@ def chart_review_iteration_count(all_items, review_data, output_dir):
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Total CHANGES_REQUESTED events per PR before merge (P50)",
+        "% of merged PRs where a human requested changes at least once",
         "Solid = Copilot-reviewed PRs; Dashed = non-Copilot PRs",
-        "If Copilot catches issues upfront, fewer human re-review rounds needed",
-        "Lower = less back-and-forth = smoother path to merge",
+        "If Copilot catches issues upfront, fewer PRs need human change requests",
+        "Lower = smoother path to merge, less back-and-forth",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "review_iteration_count.png")
@@ -5718,11 +5722,11 @@ def chart_review_rubber_stamp_safety(all_items, review_data, output_dir):
     ax.legend(loc="upper right", fontsize=10)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Defect rate for Copilot-only PRs vs human-reviewed PRs",
-        "Copilot-only = no human review comments (rubber-stamped)",
-        "If similar rates → Copilot review alone is sufficient for those PRs",
-        "Key safety check: if Copilot-only rate spikes → over-trusting AI review",
-        "⚠️ Selection bias: rubber-stamped PRs may be inherently simpler",
+        "Defect rate for Copilot-only PRs vs human+Copilot reviewed PRs",
+        "Copilot-only = merged with no human review comments",
+        "If Copilot-only rate is higher: human review still adds safety value",
+        "If rates converge over time: Copilot catching more, humans needed less",
+        "⚠️ Selection bias: Copilot-only PRs may not be the simplest ones",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "review_rubber_stamp_safety.png")
