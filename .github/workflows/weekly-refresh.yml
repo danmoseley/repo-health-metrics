@@ -103,7 +103,7 @@ jobs:
           git push -f origin "$BRANCH"
 
           # Create or update PR
-          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
             echo "Updated existing PR #$EXISTING"
           else
