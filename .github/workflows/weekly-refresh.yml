@@ -13,7 +13,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  issues: write
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -90,7 +89,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # Check for changes (including deletions)
-          git add -A -- data/ charts/ chart_index.tsv 2>/dev/null || true
+          git add -A -- data/ charts/ chart_index.tsv
           if git diff --cached --quiet; then
             echo "No data changes — skipping PR."
             exit 0
@@ -124,12 +123,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: refresh
     if: failure()
+    permissions:
+      issues: write
     steps:
       - name: Create issue on failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Ensure label exists
+          gh label create workflow-failure --repo "${{ github.repository }}" \
+            --color D93F0B --description "Automated workflow failure" 2>/dev/null || true
 
           # Close any previous failure issues so they don't pile up
           gh issue list \
