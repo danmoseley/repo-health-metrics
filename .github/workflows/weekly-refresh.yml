@@ -6,6 +6,10 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:  # allow manual trigger
 
+concurrency:
+  group: weekly-refresh
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -16,6 +20,9 @@ env:
   REPOS: >-
     dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
     microsoft/vscode golang/go rust-lang/rust
+  # Subset of REPOS that have push-event and review data fetched
+  PUSH_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
+  REVIEW_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
 
 jobs:
   refresh:
@@ -30,13 +37,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests matplotlib
+        run: pip install -r requirements.txt
 
       - name: Restore DB from CSVs
         run: python load_csv.py
 
       - name: Fetch items (incremental)
-        run: python fetch.py --repos ${{ env.REPOS }}
+        run: python fetch.py --update --repos ${{ env.REPOS }}
 
       - name: Fetch merged_by
         run: python fetch_mergers.py --repos ${{ env.REPOS }}
@@ -45,7 +52,7 @@ jobs:
         run: python fetch_comments.py --repos ${{ env.REPOS }}
 
       - name: Fetch PR push events
-        run: python fetch_pr_pushes.py --repos dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
+        run: python fetch_pr_pushes.py --repos ${{ env.PUSH_REPOS }}
 
       - name: Fetch Copilot commit trailers
         run: python fetch_copilot_commits.py --repos ${{ env.REPOS }}
@@ -54,10 +61,21 @@ jobs:
         run: python fetch_copilot_requesters.py
 
       - name: Fetch review timeline data
-        run: python fetch_reviews.py --repos dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
+        run: python fetch_reviews.py --repos ${{ env.REVIEW_REPOS }}
 
-      - name: Fetch issue authors (backfill)
-        run: python fetch_issue_authors.py --repos ${{ env.REPOS }}
+      - name: Fetch issue authors (backfill, skip if few missing)
+        run: |
+          MISSING=$(python -c "
+          import sqlite3
+          c = sqlite3.connect('pr-dashboard.db')
+          print(c.execute('SELECT count(*) FROM items WHERE author IS NULL OR author = \"\"').fetchone()[0])
+          ")
+          if [ "$MISSING" -gt 100 ]; then
+            echo "$MISSING items missing authors — running backfill"
+            python fetch_issue_authors.py --repos ${{ env.REPOS }}
+          else
+            echo "Only $MISSING items missing authors — skipping backfill"
+          fi
 
       - name: Backup DB to CSVs
         run: python backup_csvs.py
@@ -71,8 +89,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Check for changes
-          git add data/ charts/ chart_index.tsv 2>/dev/null || true
+          # Check for changes (including deletions)
+          git add -A -- data/ charts/ chart_index.tsv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No data changes — skipping PR."
             exit 0
@@ -89,13 +107,15 @@ jobs:
           if [ -n "$EXISTING" ]; then
             echo "Updated existing PR #$EXISTING"
           else
+            BODY=$(cat <<'EOF'
+          Automated weekly refresh of item data, review metrics, and charts.
+
+          This PR was created by the [weekly-refresh workflow]. Review the chart changes and merge when satisfied.
+          EOF
+            )
             gh pr create \
               --title "Weekly data refresh ($DATE)" \
-              --body "Automated weekly refresh of item data, review metrics, and charts.
-
-          **Repos refreshed:** ${{ env.REPOS }}
-
-          This PR was created by the [weekly-refresh workflow](https://github.com/${{ github.repository }}/actions/workflows/weekly-refresh.yml). Review the chart changes and merge when satisfied." \
+              --body "$BODY" \
               --head "$BRANCH" \
               --base master
           fi
