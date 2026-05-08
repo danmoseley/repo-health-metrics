@@ -58,6 +58,90 @@ AUX_TABLES = [
         );""",
         ["repo", "number", "last_fetched_at", "is_complete"],
     ),
+    (
+        "pr_reviews",
+        "data/pr_reviews.csv.gz",
+        """CREATE TABLE IF NOT EXISTS pr_reviews (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            review_id INTEGER NOT NULL,
+            author TEXT,
+            author_type TEXT,
+            state TEXT,
+            submitted_at TEXT,
+            commit_sha TEXT,
+            PRIMARY KEY (repo, number, review_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pr_reviews_repo_number
+            ON pr_reviews(repo, number);""",
+        ["repo", "number", "review_id", "author", "author_type",
+         "state", "submitted_at", "commit_sha"],
+    ),
+    (
+        "pr_review_comments",
+        "data/pr_review_comments.csv.gz",
+        """CREATE TABLE IF NOT EXISTS pr_review_comments (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            comment_id INTEGER NOT NULL,
+            review_id INTEGER,
+            author TEXT,
+            author_type TEXT,
+            body_has_suggestion INTEGER DEFAULT 0,
+            path TEXT,
+            created_at TEXT,
+            is_resolved INTEGER,
+            is_outdated INTEGER,
+            PRIMARY KEY (repo, number, comment_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pr_review_comments_repo_number
+            ON pr_review_comments(repo, number);""",
+        ["repo", "number", "comment_id", "review_id", "author", "author_type",
+         "body_has_suggestion", "path", "created_at", "is_resolved", "is_outdated"],
+    ),
+    (
+        "pr_commit_stats",
+        "data/pr_commit_stats.csv.gz",
+        """CREATE TABLE IF NOT EXISTS pr_commit_stats (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            sha TEXT NOT NULL,
+            committed_date TEXT,
+            additions INTEGER,
+            deletions INTEGER,
+            message TEXT,
+            PRIMARY KEY (repo, number, sha)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pr_commit_stats_repo_number
+            ON pr_commit_stats(repo, number);""",
+        ["repo", "number", "sha", "committed_date", "additions", "deletions", "message"],
+    ),
+    (
+        "review_fetch_progress",
+        "data/review_fetch_progress.csv",
+        """CREATE TABLE IF NOT EXISTS review_fetch_progress (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            fetched_at TEXT,
+            PRIMARY KEY (repo, number)
+        );""",
+        ["repo", "number", "status", "fetched_at"],
+    ),
+    (
+        "pr_copilot_issue_comments",
+        "data/pr_copilot_issue_comments.csv",
+        """CREATE TABLE IF NOT EXISTS pr_copilot_issue_comments (
+            repo TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            comment_id INTEGER NOT NULL,
+            author TEXT,
+            created_at TEXT,
+            body_length INTEGER,
+            PRIMARY KEY (repo, number, comment_id)
+        );""",
+        ["repo", "number", "comment_id", "author", "created_at", "body_length"],
+    ),
 ]
 
 
