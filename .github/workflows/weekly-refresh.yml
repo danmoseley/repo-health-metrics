@@ -45,10 +45,10 @@ jobs:
         run: python fetch.py --update --repos ${{ env.REPOS }}
 
       - name: Fetch merged_by
-        run: python fetch_mergers.py --repos ${{ env.REPOS }}
+        run: python fetch_mergers.py
 
       - name: Fetch first comments
-        run: python fetch_comments.py --repos ${{ env.REPOS }}
+        run: python fetch_comments.py
 
       - name: Fetch PR push events
         run: python fetch_pr_pushes.py --repos ${{ env.PUSH_REPOS }}

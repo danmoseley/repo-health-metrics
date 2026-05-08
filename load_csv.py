@@ -281,6 +281,8 @@ def main():
                     "VALUES (?, ?, 0, ?, 'complete')",
                     (repo, item_type, n),
                 )
+    # Set schema version so fetch.py --update recognizes this DB
+    conn.execute("PRAGMA user_version = 1")
     conn.commit()
     conn.close()
 
