@@ -130,16 +130,16 @@ def load_items(conn, repo):
     for predecessor in REPO_LINEAGE.get(repo, []):
         repos_to_load.append((predecessor, True))
 
+    # Detect available columns once (schema is per-DB, not per-repo)
+    col_info = conn.execute("PRAGMA table_info(items)").fetchall()
+    available_cols = {row[1] for row in col_info}
+    has_copilot_trailer = "copilot_trailer" in available_cols
+    has_title = "title" in available_cols
+    copilot_col = "copilot_trailer" if has_copilot_trailer else "NULL AS copilot_trailer"
+    title_col = "title" if has_title else "NULL AS title"
+
     items = []
     for load_repo, prs_only in repos_to_load:
-        # Detect available columns to avoid masking unrelated errors
-        col_info = conn.execute("PRAGMA table_info(items)").fetchall()
-        available_cols = {row[1] for row in col_info}
-        has_copilot_trailer = "copilot_trailer" in available_cols
-        has_title = "title" in available_cols
-
-        copilot_col = "copilot_trailer" if has_copilot_trailer else "NULL AS copilot_trailer"
-        title_col = "title" if has_title else "NULL AS title"
         pr_filter = " AND is_pull_request = 1" if prs_only else ""
         sql = (f"SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
                f"author, merged_by, copilot_requester, {copilot_col}, {title_col} "
@@ -5597,16 +5597,17 @@ def chart_review_first_response_time(all_items, review_data, output_dir):
 
 
 def chart_review_rubber_stamp_safety(all_items, review_data, output_dir):
-    """Safety check: do 'rubber-stamped' PRs (Copilot-only review) have higher defect rates?
+    """Safety check: among Copilot-reviewed PRs, do those without substantive
+    human review have higher defect rates?
 
-    Compares revert/fix-recent rate for:
-    - PRs reviewed only by Copilot (no human review comments)
-    - PRs reviewed by humans (with or without Copilot)
-    If rubber-stamped PRs have similar or lower defect rates, Copilot review
-    alone is sufficient for those PRs.
+    Compares revert/fix-recent rate for Copilot-reviewed PRs only:
+    - Copilot-only: no substantive human review (no human comments, no CHANGES_REQUESTED/COMMENTED)
+    - Human + Copilot: has substantive human review alongside Copilot
+    Non-Copilot PRs are excluded. If Copilot-only rates are similar or lower,
+    Copilot review alone is sufficient for those PRs.
     """
     fig, ax = plt.subplots(figsize=(14, 6))
-    title = "Rubber-Stamp Safety: Defect Rate by Review Type"
+    title = "Defect Rate: Copilot-Only vs Human+Copilot Review"
     ax.set_title(title, fontsize=14)
     _stamp_chart(ax, title)
     ax.set_ylabel("Reverts + fix-recent per 100 merged PRs (4-week rolling)")
@@ -5732,11 +5733,11 @@ def chart_review_rubber_stamp_safety(all_items, review_data, output_dir):
     ax.legend(loc="upper right", fontsize=10)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "Defect rate for Copilot-only PRs vs human+Copilot reviewed PRs",
-        "Copilot-only = merged with no human review comments",
-        "If Copilot-only rate is higher: human review still adds safety value",
-        "If rates converge over time: Copilot catching more, humans needed less",
-        "⚠️ Selection bias: Copilot-only PRs may not be the simplest ones",
+        "Among Copilot-reviewed PRs only (non-Copilot PRs excluded)",
+        "Copilot-only = no human comments or substantive reviews",
+        "Human+Copilot = has human comments/CHANGES_REQUESTED/COMMENTED",
+        "If Copilot-only rate is higher: human review adds safety value",
+        "⚠️ Selection bias: Copilot-only PRs may differ in complexity",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "review_rubber_stamp_safety.png")
