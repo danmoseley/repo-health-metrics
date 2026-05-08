@@ -3,14 +3,19 @@
 
 This is the *companion* to load_csv.py. After fetching new data
 (fetch.py / fetch_comments.py / fetch_pr_pushes.py / fetch_mergers.py /
-fetch_copilot_requesters.py), run this to refresh the committed CSV
-backups so the data survives DB deletion/clones.
+fetch_copilot_requesters.py / fetch_reviews.py), run this to refresh the
+committed CSV backups so the data survives DB deletion/clones.
 
 Items table is exported by a separate process (data/items.csv.gz is large
 and updated less often). This script handles the smaller auxiliary tables:
-  - pr_first_comment      -> data/pr_first_comment.csv
-  - pr_push_events        -> data/pr_push_events.csv.gz
-  - pr_push_progress      -> data/pr_push_progress.csv
+  - pr_first_comment          -> data/pr_first_comment.csv
+  - pr_push_events            -> data/pr_push_events.csv.gz
+  - pr_push_progress          -> data/pr_push_progress.csv
+  - pr_reviews                -> data/pr_reviews.csv.gz
+  - pr_review_comments        -> data/pr_review_comments.csv.gz
+  - pr_commit_stats           -> data/pr_commit_stats.csv.gz
+  - review_fetch_progress     -> data/review_fetch_progress.csv
+  - pr_copilot_issue_comments -> data/pr_copilot_issue_comments.csv
 
 Usage:
     python backup_csvs.py            # default DB path
@@ -38,6 +43,23 @@ EXPORTS = [
     ("pr_push_progress",
      "pr_push_progress.csv",
      ["repo", "number", "last_fetched_at", "is_complete"]),
+    ("pr_reviews",
+     "pr_reviews.csv.gz",
+     ["repo", "number", "review_id", "author", "author_type",
+      "state", "submitted_at", "commit_sha"]),
+    ("pr_review_comments",
+     "pr_review_comments.csv.gz",
+     ["repo", "number", "comment_id", "review_id", "author", "author_type",
+      "body_has_suggestion", "path", "created_at", "is_resolved", "is_outdated"]),
+    ("pr_commit_stats",
+     "pr_commit_stats.csv.gz",
+     ["repo", "number", "sha", "committed_date", "additions", "deletions", "message"]),
+    ("review_fetch_progress",
+     "review_fetch_progress.csv",
+     ["repo", "number", "status", "fetched_at"]),
+    ("pr_copilot_issue_comments",
+     "pr_copilot_issue_comments.csv",
+     ["repo", "number", "comment_id", "author", "created_at", "body_length"]),
 ]
 
 

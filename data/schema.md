@@ -148,7 +148,7 @@ loads these and clusters timestamps within 5 min into "pushes" (= one CI trigger
 
 ## Backup / Restore
 
-- **Backup auxiliary tables:** `python backup_csvs.py` — exports `pr_first_comment`, `pr_push_events`, `pr_push_progress` to `data/*.csv[.gz]`
+- **Backup auxiliary tables:** `python backup_csvs.py` — exports `pr_first_comment`, `pr_push_events`, `pr_push_progress`, `pr_reviews`, `pr_review_comments`, `pr_commit_stats`, `review_fetch_progress`, `pr_copilot_issue_comments` to `data/*.csv[.gz]`
 - **Backup items:** `data/items.csv.gz` — gzipped CSV of the full `items` table (separate process)
 - **Restore:** `python load_csv.py` — recreates DB from `data/items.csv.gz` AND all auxiliary CSVs (DB must not exist)
 - **DB file** (`pr-dashboard.db`) is gitignored; CSVs are committed
@@ -166,3 +166,83 @@ loads these and clusters timestamps within 5 min into "pushes" (= one CI trigger
 | `fetch_copilot_commits.py` | Co-authored-by: Copilot trailer in first commit | GraphQL | copilot_trailer |
 | `fetch_issue_authors.py` | Author for issues (backfill) | REST | author (for issues only) |
 | `fetch_comments.py` | First qualifying comment per PR | REST | pr_first_comment table |
+| `fetch_reviews.py` | PR review timeline data (reviews, comments, commits, threads) | GraphQL | pr_reviews, pr_review_comments, pr_commit_stats, review_fetch_progress, pr_copilot_issue_comments tables; also adds `title` to items |
+
+### `pr_reviews` — PR review submissions
+
+Each formal review action (approve, request changes, comment) on a PR.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | e.g. `dotnet/runtime` |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `review_id` | INTEGER | NOT NULL | — | GitHub review database ID |
+| `author` | TEXT | yes | — | Reviewer username |
+| `author_type` | TEXT | yes | — | `User`, `Bot`, `Organization` |
+| `state` | TEXT | yes | — | `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED` |
+| `submitted_at` | TEXT | yes | — | ISO 8601 timestamp |
+| `commit_sha` | TEXT | yes | — | Commit SHA the review was made against |
+
+**Primary key:** `(repo, number, review_id)`
+
+### `pr_review_comments` — inline review comments
+
+Individual code comments left as part of a review.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | e.g. `dotnet/runtime` |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `comment_id` | INTEGER | NOT NULL | — | GitHub comment database ID |
+| `review_id` | INTEGER | yes | — | Parent review ID |
+| `author` | TEXT | yes | — | Commenter username |
+| `author_type` | TEXT | yes | — | `User`, `Bot` |
+| `body_has_suggestion` | INTEGER | yes | 0 | 1 if contains ` ```suggestion ` block |
+| `path` | TEXT | yes | — | File path the comment is on |
+| `created_at` | TEXT | yes | — | ISO 8601 timestamp |
+| `is_resolved` | INTEGER | yes | — | 1 if thread resolved, 0 if not, NULL if unmatched |
+| `is_outdated` | INTEGER | yes | — | 1 if thread outdated |
+
+**Primary key:** `(repo, number, comment_id)`
+
+### `pr_commit_stats` — per-commit diff stats
+
+Lines added/deleted per commit in a PR, used for churn analysis.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | e.g. `dotnet/runtime` |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `sha` | TEXT | NOT NULL | — | Commit SHA |
+| `committed_date` | TEXT | yes | — | ISO 8601 timestamp |
+| `additions` | INTEGER | yes | — | Lines added |
+| `deletions` | INTEGER | yes | — | Lines deleted |
+| `message` | TEXT | yes | — | Commit message (first line) |
+
+**Primary key:** `(repo, number, sha)`
+
+### `review_fetch_progress` — bookkeeping for fetch_reviews.py
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | Repository |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `status` | TEXT | NOT NULL | `pending` | `pending`, `complete`, `failed` |
+| `fetched_at` | TEXT | yes | — | When this PR's review data was fetched |
+
+**Primary key:** `(repo, number)`
+
+### `pr_copilot_issue_comments` — agentic Copilot review comments
+
+Issue comments posted by `github-actions[bot]` containing "Copilot Code Review" text.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `repo` | TEXT | NOT NULL | — | e.g. `dotnet/runtime` |
+| `number` | INTEGER | NOT NULL | — | PR number |
+| `comment_id` | INTEGER | NOT NULL | — | GitHub comment database ID |
+| `author` | TEXT | yes | — | Always `github-actions[bot]` |
+| `created_at` | TEXT | yes | — | ISO 8601 timestamp |
+| `body_length` | INTEGER | yes | — | Length of comment body |
+
+**Primary key:** `(repo, number, comment_id)`
