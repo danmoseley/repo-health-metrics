@@ -132,34 +132,19 @@ def load_items(conn, repo):
 
     items = []
     for load_repo, prs_only in repos_to_load:
-        if prs_only:
-            sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                   "author, merged_by, copilot_requester, copilot_trailer, title "
-                   "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
-            fallback_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                            "author, merged_by, copilot_requester, NULL AS copilot_trailer, title "
-                            "FROM items WHERE repo = ? AND is_pull_request = 1 ORDER BY created_at")
-        else:
-            sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                   "author, merged_by, copilot_requester, copilot_trailer, title "
-                   "FROM items WHERE repo = ? ORDER BY created_at")
-            fallback_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                            "author, merged_by, copilot_requester, NULL AS copilot_trailer, title "
-                            "FROM items WHERE repo = ? ORDER BY created_at")
-        try:
-            rows = conn.execute(sql, (load_repo,)).fetchall()
-        except sqlite3.OperationalError as e:
-            if "no such column" not in str(e):
-                raise
-            # Fallback: try without copilot_trailer (older DBs)
-            try:
-                rows = conn.execute(fallback_sql, (load_repo,)).fetchall()
-            except sqlite3.OperationalError:
-                # Even fallback failed (missing title column) — minimal query
-                minimal_sql = ("SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
-                               "author, merged_by, NULL, NULL, NULL "
-                               f"FROM items WHERE repo = ?{' AND is_pull_request = 1' if prs_only else ''} ORDER BY created_at")
-                rows = conn.execute(minimal_sql, (load_repo,)).fetchall()
+        # Detect available columns to avoid masking unrelated errors
+        col_info = conn.execute("PRAGMA table_info(items)").fetchall()
+        available_cols = {row[1] for row in col_info}
+        has_copilot_trailer = "copilot_trailer" in available_cols
+        has_title = "title" in available_cols
+
+        copilot_col = "copilot_trailer" if has_copilot_trailer else "NULL AS copilot_trailer"
+        title_col = "title" if has_title else "NULL AS title"
+        pr_filter = " AND is_pull_request = 1" if prs_only else ""
+        sql = (f"SELECT number, created_at, closed_at, state, is_pull_request, merged_at, "
+               f"author, merged_by, copilot_requester, {copilot_col}, {title_col} "
+               f"FROM items WHERE repo = ?{pr_filter} ORDER BY created_at")
+        rows = conn.execute(sql, (load_repo,)).fetchall()
         for r in rows:
             items.append({
                 "number": r[0],
@@ -4729,7 +4714,14 @@ def chart_review_rubber_stamp_rate(all_items, review_data, output_dir):
             human_comments = [c for c in comments_by_pr.get(num, [])
                               if not _is_copilot_reviewer(c["author"])
                               and c.get("author_type") == "User"]
+            # A rubber stamp = human approved with no inline comments AND no
+            # substantive review states (CHANGES_REQUESTED or COMMENTED)
+            has_substantive_review = any(
+                r["state"] in ("CHANGES_REQUESTED", "COMMENTED")
+                for r in human_reviews
+            )
             is_stamp = (len(human_comments) == 0
+                        and not has_substantive_review
                         and any(r["state"] == "APPROVED" for r in human_reviews))
             wk = week_start(cd)
             stamp_by_week[wk][1] += 1
@@ -5037,10 +5029,10 @@ def chart_review_revert_rate(all_items, review_data, output_dir):
         for item in items:
             if not item.get("is_pr") or not item.get("merged_at"):
                 continue
-            cd = parse_date(item["created_at"])
-            if not cd or cd < cutoff:
+            md = parse_date(item["merged_at"])
+            if not md or md < cutoff:
                 continue
-            wk = week_start(cd)
+            wk = week_start(md)
             total_by_week[wk] += 1
 
             title = item.get("title", "")
@@ -5056,7 +5048,7 @@ def chart_review_revert_rate(all_items, review_data, output_dir):
                 if match:
                     ref_num = int(match.group(1))
                     ref_merged = merged_prs.get(ref_num)
-                    if ref_merged and 0 <= (cd - ref_merged).days <= 7:
+                    if ref_merged and 0 <= (md - ref_merged).days <= 7:
                         is_regression = True
 
             if is_regression:
@@ -5118,7 +5110,9 @@ def chart_review_change_attribution(all_items, review_data, output_dir):
     Commits before any review are excluded (those are the initial PR).
     """
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.set_title("Change Attribution: Who Drives Post-Review Work?", fontsize=14)
+    title = "Change Attribution: Who Drives Post-Review Work?"
+    ax.set_title(title, fontsize=14)
+    _stamp_chart(ax, title)
     ax.set_ylabel("% of lines changed (4-week rolling)")
 
     repos = _repos_with_copilot_activity(all_items, review_data)
@@ -5204,8 +5198,10 @@ def chart_review_change_attribution(all_items, review_data, output_dir):
                     else:
                         week_human[week] += lines
 
-    # Build rolling 4-week percentages
-    all_weeks = sorted(set(week_copilot) | set(week_human) | set(week_author))
+    # Build rolling 4-week percentages — start from Apr 2025 (sparse data before)
+    cutoff_week = "2025-03-24"
+    all_weeks = sorted(w for w in set(week_copilot) | set(week_human) | set(week_author)
+                       if w >= cutoff_week)
     if len(all_weeks) < 4:
         plt.close(fig)
         print("  (skipping change attribution — insufficient data)")
@@ -5259,7 +5255,9 @@ def chart_review_thread_depth(all_items, review_data, output_dir):
     A thread is "Copilot-initiated" if the first comment on that path is from Copilot.
     """
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.set_title("Review Thread Depth: Copilot vs Human-Initiated", fontsize=14)
+    title = "Review Thread Depth: Copilot vs Human-Initiated"
+    ax.set_title(title, fontsize=14)
+    _stamp_chart(ax, title)
     ax.set_ylabel("Avg comments per thread (4-week rolling)")
 
     repos = _repos_with_copilot_activity(all_items, review_data)
@@ -5356,7 +5354,9 @@ def chart_review_suggestion_velocity(all_items, review_data, output_dir):
     Only considers comments where body_has_suggestion is true.
     """
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.set_title("Suggestion Response Time: Copilot vs Human", fontsize=14)
+    title = "Suggestion Response Time: Copilot vs Human"
+    ax.set_title(title, fontsize=14)
+    _stamp_chart(ax, title)
     ax.set_ylabel("P50 hours from suggestion to next commit (4-week rolling)")
 
     repos = _repos_with_copilot_activity(all_items, review_data)
@@ -5469,7 +5469,9 @@ def chart_review_first_response_time(all_items, review_data, output_dir):
     Shows 24/7 coverage benefit: Copilot responds in minutes, humans in hours.
     """
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.set_title("First Review Response Time (P50 hours)", fontsize=14)
+    title = "First Review Response Time (P50 hours)"
+    ax.set_title(title, fontsize=14)
+    _stamp_chart(ax, title)
     ax.set_ylabel("Hours from PR creation to first review (4-week rolling)")
 
     repos = _repos_with_copilot_activity(all_items, review_data)
@@ -5488,8 +5490,8 @@ def chart_review_first_response_time(all_items, review_data, output_dir):
             if not it.get("merged_at") or not it.get("created_at"):
                 continue
 
-            merge_week = week_start(datetime.fromisoformat(
-                it["merged_at"].replace("Z", "+00:00")).date()).strftime("%Y-%m-%d")
+            created_week = week_start(datetime.fromisoformat(
+                it["created_at"].replace("Z", "+00:00")).date()).strftime("%Y-%m-%d")
 
             reviews = reviews_by_pr.get(num, [])
             comments = comments_by_pr.get(num, [])
@@ -5531,7 +5533,7 @@ def chart_review_first_response_time(all_items, review_data, output_dir):
                     t_cop = datetime.fromisoformat(first_cop_ts.replace("Z", "+00:00"))
                     hours = (t_cop - t_created).total_seconds() / 3600
                     if 0 <= hours <= 168:
-                        week_cop_first[merge_week].append(hours)
+                        week_cop_first[created_week].append(hours)
                 except (ValueError, TypeError):
                     pass
             if first_hum_ts:
@@ -5539,7 +5541,7 @@ def chart_review_first_response_time(all_items, review_data, output_dir):
                     t_hum = datetime.fromisoformat(first_hum_ts.replace("Z", "+00:00"))
                     hours = (t_hum - t_created).total_seconds() / 3600
                     if 0 <= hours <= 168:
-                        week_hum_first[merge_week].append(hours)
+                        week_hum_first[created_week].append(hours)
                 except (ValueError, TypeError):
                     pass
 
@@ -5604,7 +5606,9 @@ def chart_review_rubber_stamp_safety(all_items, review_data, output_dir):
     alone is sufficient for those PRs.
     """
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.set_title("Rubber-Stamp Safety: Defect Rate by Review Type", fontsize=14)
+    title = "Rubber-Stamp Safety: Defect Rate by Review Type"
+    ax.set_title(title, fontsize=14)
+    _stamp_chart(ax, title)
     ax.set_ylabel("Reverts + fix-recent per 100 merged PRs (4-week rolling)")
 
     repos = _repos_with_copilot_activity(all_items, review_data)
@@ -5652,7 +5656,13 @@ def chart_review_rubber_stamp_safety(all_items, review_data, output_dir):
             if not has_copilot_review and not has_copilot_comment:
                 continue  # Not Copilot-reviewed at all
 
-            is_copilot_only = (has_copilot_review or has_copilot_comment) and not has_human_comment
+            # Copilot-only = no human inline comments AND no substantive
+            # human reviews (CHANGES_REQUESTED or COMMENTED)
+            has_substantive_human = has_human_comment or any(
+                r["author_type"] == "User" and r["state"] in ("CHANGES_REQUESTED", "COMMENTED")
+                for r in reviews
+            )
+            is_copilot_only = not has_substantive_human
 
             # Detect defect
             is_defect = False
