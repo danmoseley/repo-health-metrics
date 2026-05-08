@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import sqlite3
+import re
 import requests
 
 DB_PATH = "pr-dashboard.db"
@@ -130,8 +131,7 @@ def backfill_repo(conn, session, repo):
             break
         
         # Parse the next URL from the Link header
-        import re as _re
-        match = _re.search(r'<([^>]+)>;\s*rel="next"', link)
+        match = re.search(r'<([^>]+)>;\s*rel="next"', link)
         if match:
             next_url = match.group(1)
             next_params = {}  # URL contains all params

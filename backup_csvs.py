@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export all auxiliary tables to CSVs in data/ for git tracking.
+"""Export all tables to CSVs in data/ for git tracking.
 
 This is the *companion* to load_csv.py. After fetching new data
 (fetch.py / fetch_comments.py / fetch_pr_pushes.py / fetch_mergers.py /
@@ -89,7 +89,7 @@ def get_table_columns(conn, table):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Export auxiliary tables to CSV.")
+    p = argparse.ArgumentParser(description="Export all tables to CSV.")
     p.add_argument("--db", default=DEFAULT_DB)
     args = p.parse_args()
 
