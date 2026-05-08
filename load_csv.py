@@ -224,6 +224,8 @@ def main():
             total_expected INTEGER,
             updated_at TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
+            sync_started_at TEXT,
+            next_url TEXT,
             PRIMARY KEY (repo, item_type)
         );
     """)
@@ -275,11 +277,17 @@ def main():
                 (repo, is_pr),
             ).fetchone()[0]
             if n > 0:
+                # Derive watermark from most recent item timestamp
+                watermark = conn.execute(
+                    "SELECT max(coalesce(closed_at, created_at)) FROM items "
+                    "WHERE repo=? AND is_pull_request=?",
+                    (repo, is_pr),
+                ).fetchone()[0]
                 conn.execute(
                     "INSERT OR REPLACE INTO fetch_progress "
-                    "(repo, item_type, last_page, items_fetched, status) "
-                    "VALUES (?, ?, 0, ?, 'complete')",
-                    (repo, item_type, n),
+                    "(repo, item_type, last_page, items_fetched, status, sync_started_at) "
+                    "VALUES (?, ?, 0, ?, 'complete', ?)",
+                    (repo, item_type, n, watermark),
                 )
     # Set schema version so fetch.py --update recognizes this DB
     conn.execute("PRAGMA user_version = 1")

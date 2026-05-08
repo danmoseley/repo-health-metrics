@@ -576,15 +576,15 @@ def fetch_repo_reviews(conn, session, token, repo, since_date):
         result = fetch_pr_review_data(session, token, owner, name, number)
         if result is None:
             consecutive_failures += 1
-            # Mark as failed so we can retry later
+            # Mark as failed so we can retry later with --retry-failed
             conn.execute(
                 "INSERT OR REPLACE INTO review_fetch_progress "
                 "(repo, number, status, fetched_at) VALUES (?, ?, 'failed', ?)",
                 (repo, number, datetime.now(timezone.utc).isoformat())
             )
             conn.commit()
-            if consecutive_failures >= 5:
-                print(f"  5 consecutive failures — stopping {repo}")
+            if consecutive_failures >= 10:
+                print(f"  10 consecutive failures — stopping {repo}")
                 break
             continue
 
