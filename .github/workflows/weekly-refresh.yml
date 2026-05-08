@@ -1,0 +1,97 @@
+name: Weekly Data Refresh
+
+on:
+  schedule:
+    # Monday 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:  # allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  REPOS: >-
+    dotnet/runtime dotnet/roslyn dotnet/maui dotnet/aspire
+    microsoft/vscode golang/go rust-lang/rust
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 hours max
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests matplotlib
+
+      - name: Restore DB from CSVs
+        run: python load_csv.py
+
+      - name: Fetch items (incremental)
+        run: python fetch.py --repos ${{ env.REPOS }}
+
+      - name: Fetch merged_by
+        run: python fetch_mergers.py --repos ${{ env.REPOS }}
+
+      - name: Fetch first comments
+        run: python fetch_comments.py --repos ${{ env.REPOS }}
+
+      - name: Fetch PR push events
+        run: python fetch_pr_pushes.py --repos dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
+
+      - name: Fetch Copilot commit trailers
+        run: python fetch_copilot_commits.py --repos ${{ env.REPOS }}
+
+      - name: Fetch review timeline data
+        run: python fetch_reviews.py --repos dotnet/runtime dotnet/roslyn microsoft/aspire
+
+      - name: Fetch issue authors (backfill)
+        run: python fetch_issue_authors.py --repos ${{ env.REPOS }}
+
+      - name: Backup DB to CSVs
+        run: python backup_csvs.py
+
+      - name: Generate charts
+        run: python analyze.py
+
+      - name: Create or update PR
+        run: |
+          BRANCH="auto/weekly-refresh"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Check for changes
+          git add data/ charts/ chart_index.tsv 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No data changes — skipping PR."
+            exit 0
+          fi
+
+          # Commit and push
+          git checkout -B "$BRANCH"
+          DATE=$(date -u +%Y-%m-%d)
+          git commit -m "Weekly data refresh ($DATE)"
+          git push -f origin "$BRANCH"
+
+          # Create or update PR
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            echo "Updated existing PR #$EXISTING"
+          else
+            gh pr create \
+              --title "Weekly data refresh ($DATE)" \
+              --body "Automated weekly refresh of item data, review metrics, and charts.
+
+          **Repos refreshed:** ${{ env.REPOS }}
+
+          This PR was created by the [weekly-refresh workflow](https://github.com/${{ github.repository }}/actions/workflows/weekly-refresh.yml). Review the chart changes and merge when satisfied." \
+              --head "$BRANCH" \
+              --base master
+          fi
