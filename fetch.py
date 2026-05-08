@@ -336,7 +336,7 @@ def fetch_items(conn, session, repo, item_type, request_delay):
             print(f"  [{ts}] page {page}: {items_fetched} {item_type}s{suffix}")
 
         # End of data?
-        if not link_next or len(data) < 100:
+        if not link_next:
             break
 
         next_url = link_next
@@ -560,7 +560,7 @@ def update_repo(conn, session, repo, request_delay):
     return issues_updated, prs_updated
 
 
-def hydrate_merged_by(conn, session, repo, request_delay):
+def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
     """
     Backfill merged_by for merged PRs that have NULL merged_by.
 
@@ -575,6 +575,8 @@ def hydrate_merged_by(conn, session, repo, request_delay):
     or None if hydration stops early due to interruption or too many
     request failures.
     """
+    if start_time is None:
+        start_time = time.time()
     owner, name = repo.split("/")
 
     # Skip PRs previously checked where GitHub has no merged_by (marked as '')
@@ -659,7 +661,7 @@ def hydrate_merged_by(conn, session, repo, request_delay):
                     raise
             ts = datetime.now().strftime("%H:%M:%S")
             remaining = total - i - 1
-            rate = hydrated / max((time.time() - hydrate_merged_by._start_time), 1)
+            rate = hydrated / max((time.time() - start_time), 1)
             eta_min = remaining / max(rate, 0.01) / 60
             print(f"  [{ts}] hydrated {hydrated}/{total} "
                   f"({failed} failed, ~{eta_min:.0f} min remaining)")
@@ -826,7 +828,7 @@ def main():
 
     if args.hydrate:
         # --- Hydrate merged_by mode ---
-        hydrate_merged_by._start_time = time.time()
+        _hydrate_start_time = time.time()
         for i, repo in enumerate(repos):
             if _shutdown_requested:
                 break
@@ -835,7 +837,7 @@ def main():
             print(f"[{i+1}/{len(repos)}] {repo} (hydrate merged_by)")
             print(f"{'='*60}")
 
-            hydrate_merged_by(conn, session, repo, args.delay)
+            hydrate_merged_by(conn, session, repo, args.delay, start_time=_hydrate_start_time)
 
     elif args.update:
         # --- Incremental update mode ---

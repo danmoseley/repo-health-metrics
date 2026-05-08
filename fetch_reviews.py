@@ -133,7 +133,7 @@ query($owner: String!, $name: String!, $number: Int!,
           isResolved
           isOutdated
           resolvedBy { login }
-          comments(first: 3) {
+          comments(first: 10) {
             nodes {
               body
               author { login __typename }
@@ -286,8 +286,12 @@ def fetch_pr_review_data(session, token, owner, name, number):
     thread_cursor = None
     timeline_done = False
     threads_done = False
+    rate_limit_retries = 0
 
     while not (timeline_done and threads_done):
+        if rate_limit_retries >= 3:
+            print(f"    Rate-limited 3 times for PR #{number} — giving up")
+            return None
         variables = {
             "owner": owner,
             "name": name,
@@ -332,6 +336,7 @@ def fetch_pr_review_data(session, token, owner, name, number):
                     pass
                 print(f"    Rate limited on PR #{number}, sleeping {wait:.0f}s...")
                 time.sleep(wait)
+                rate_limit_retries += 1
                 continue  # retry this PR's current page
             print(f"    HTTP {resp.status_code} for PR #{number}: {body_text}")
             return None
@@ -347,9 +352,10 @@ def fetch_pr_review_data(session, token, owner, name, number):
             is_rate_limit = any("rate" in str(e).lower() for e in errors)
             if is_rate_limit:
                 rl = data.get("data", {}).get("rateLimit", {})
-                if not handle_rate_limit(rl, min_remaining=0):
+                if not handle_rate_limit(rl, min_remaining=1):
                     print(f"    Rate limit error for PR #{number}, sleeping 600s...")
                     time.sleep(600)
+                rate_limit_retries += 1
                 continue  # retry
             print(f"    GraphQL errors for PR #{number}: {errors}")
             return None

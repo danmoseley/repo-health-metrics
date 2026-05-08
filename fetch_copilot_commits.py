@@ -156,7 +156,7 @@ def main():
                     f'commits(first:1) {{ nodes {{ commit {{ message }} }} }} '
                     f'}}'
                 )
-            query = f'{{ repository(owner:"{owner}",name:"{name}") {{ {" ".join(parts)} }} }}'
+            query = f'{{ rateLimit {{ remaining resetAt }} repository(owner:"{owner}",name:"{name}") {{ {" ".join(parts)} }} }}'
 
             data = run_graphql(query)
             if not data or "data" not in data:
@@ -164,8 +164,19 @@ def main():
                 errors = (data or {}).get("errors", [])
                 is_rate_limit = any("rate" in str(e).lower() for e in errors)
                 if is_rate_limit:
-                    print("  Rate limited — waiting 60s...")
-                    time.sleep(60)
+                    wait = 60
+                    # Try to parse resetAt from rateLimit in response
+                    try:
+                        rl = (data or {}).get("data", {}).get("rateLimit", {})
+                        reset_at = rl.get("resetAt", "")
+                        if reset_at:
+                            from datetime import datetime as _dt, timezone as _tz
+                            reset = _dt.fromisoformat(reset_at.replace("Z", "+00:00"))
+                            wait = max((reset - _dt.now(_tz.utc)).total_seconds(), 0) + 10
+                    except Exception:
+                        pass
+                    print(f"  Rate limited — waiting {wait:.0f}s...")
+                    time.sleep(wait)
                     data = run_graphql(query)
 
                 if not data or "data" not in data:

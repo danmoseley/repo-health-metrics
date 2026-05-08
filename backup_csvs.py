@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Export all auxiliary tables to CSVs in data/ for git tracking.
+"""Export all tables to CSVs in data/ for git tracking.
 
 This is the *companion* to load_csv.py. After fetching new data
 (fetch.py / fetch_comments.py / fetch_pr_pushes.py / fetch_mergers.py /
 fetch_copilot_requesters.py / fetch_reviews.py), run this to refresh the
 committed CSV backups so the data survives DB deletion/clones.
 
-Items table is exported by a separate process (data/items.csv.gz is large
-and updated less often). This script handles the smaller auxiliary tables:
+Tables exported:
+  - items                    -> data/items.csv.gz (main data)
   - pr_first_comment          -> data/pr_first_comment.csv
   - pr_push_events            -> data/pr_push_events.csv.gz
   - pr_push_progress          -> data/pr_push_progress.csv
@@ -34,6 +34,12 @@ DATA_DIR = "data"
 
 # (table_name, csv_filename, columns, order_by) — gzip if filename ends in .gz
 EXPORTS = [
+    ("items",
+     "items.csv.gz",
+     ["repo", "number", "created_at", "closed_at", "state", "is_pull_request",
+      "merged_at", "labels", "author", "merged_by", "copilot_requester",
+      "copilot_trailer", "title"],
+     "repo, number"),
     ("pr_first_comment",
      "pr_first_comment.csv",
      ["repo", "number", "first_comment_at", "commenter"],
@@ -77,8 +83,13 @@ def table_exists(conn, name):
     ).fetchone() is not None
 
 
+def get_table_columns(conn, table):
+    """Return the set of column names that actually exist in a table."""
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def main():
-    p = argparse.ArgumentParser(description="Export auxiliary tables to CSV.")
+    p = argparse.ArgumentParser(description="Export all tables to CSV.")
     p.add_argument("--db", default=DEFAULT_DB)
     args = p.parse_args()
 
@@ -93,14 +104,20 @@ def main():
         if not table_exists(conn, table):
             print(f"  (skipping {table}: table does not exist)")
             continue
+        # Only export columns that exist in this DB (handles partial migrations)
+        existing = get_table_columns(conn, table)
+        actual_cols = [c for c in cols if c in existing]
+        if not actual_cols:
+            print(f"  (skipping {table}: no matching columns)")
+            continue
         path = os.path.join(DATA_DIR, fname)
-        col_list = ", ".join(cols)
+        col_list = ", ".join(actual_cols)
         rows = conn.execute(f"SELECT {col_list} FROM {table} ORDER BY {order}")
         opener = gzip.open if path.endswith(".gz") else open
         n = 0
         with opener(path, "wt", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
-            w.writerow(cols)
+            w.writerow(actual_cols)
             for r in rows:
                 w.writerow(["" if v is None else v for v in r])
                 n += 1
