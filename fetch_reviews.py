@@ -106,7 +106,7 @@ query($owner: String!, $name: String!, $number: Int!,
             state
             commit { oid }
             author { login __typename }
-            comments(first: 30) {
+            comments(first: 100) {
               nodes {
                 databaseId
                 body
@@ -217,8 +217,13 @@ def ensure_schema(conn):
         conn.execute("ALTER TABLE items ADD COLUMN title TEXT")
         conn.commit()
         print("Added title column to items table")
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    except sqlite3.OperationalError as e:
+        if "duplicate column" in str(e).lower():
+            pass  # column already exists
+        elif "no such table" in str(e).lower():
+            print("Warning: items table not found — run fetch.py or load_csv.py first")
+        else:
+            raise
 
     conn.commit()
 
@@ -231,7 +236,7 @@ def has_suggestion(body):
 
 
 def graphql_request(session, token, query, variables):
-    """Execute a GraphQL query. Returns parsed JSON or raises."""
+    """Execute a GraphQL query. Returns raw requests.Response (caller must handle .json(), .status_code)."""
     resp = session.post(
         "https://api.github.com/graphql",
         json={"query": query, "variables": variables},
@@ -424,6 +429,7 @@ def fetch_pr_review_data(session, token, owner, name, number):
                     "resolved_by": resolved_by,
                     "author": thread_author,
                     "author_type": thread_author_type,
+                    "created_at": first_comment.get("createdAt", ""),
                     "has_suggestion": any(
                         has_suggestion(c.get("body")) for c in thread_comments
                     ),
@@ -500,9 +506,13 @@ def store_pr_data(conn, repo, number, title, reviews, comments, commits, threads
 
 
 def _thread_comment_keys(thread):
-    """Generate lookup keys for matching thread comments to review comments."""
-    # We match on (author, created_at) which is usually unique per comment
-    return [(thread["author"], "")]  # Fallback; real matching uses thread data
+    """Generate lookup keys for matching thread comments to review comments.
+    Matches on (author, created_at) which is usually unique per comment."""
+    author = thread.get("author", "")
+    created_at = thread.get("created_at", "")
+    if author and created_at:
+        return [(author, created_at)]
+    return []
 
 
 def fetch_repo_reviews(conn, session, token, repo, since_date):

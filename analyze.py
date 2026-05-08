@@ -579,7 +579,8 @@ def write_chart_registry(output_dir):
     with open(path, "w", encoding="utf-8") as f:
         f.write("hash\ttitle\n")
         for h in sorted(_CHART_REGISTRY):
-            f.write(f"{h}\t{_CHART_REGISTRY[h]}\n")
+            title = _CHART_REGISTRY[h].replace("\n", " — ")
+            f.write(f"{h}\t{title}\n")
     print(f"  {path}")
 
 
@@ -3840,7 +3841,7 @@ REVIEW_CHART_REPOS = ("dotnet/runtime", "dotnet/roslyn", "microsoft/aspire")
 
 def load_review_data(conn, repo):
     """Load all review-related data for a repo from the review tables.
-    Returns dict with keys: reviews, comments, commits, or empty dict if tables missing."""
+    Returns dict with keys: reviews_by_pr, comments_by_pr, commits_by_pr, or empty dict if tables missing."""
     try:
         reviews = conn.execute(
             "SELECT number, author, author_type, state, submitted_at "
@@ -4115,8 +4116,6 @@ def chart_review_copilot_comment_density(all_items, review_data, output_dir):
 
 def chart_review_human_comments_comparison(all_items, review_data, output_dir):
     """Human comments on Copilot-reviewed PRs vs non-Copilot-reviewed PRs."""
-    from statistics import median
-
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Human Review Comments — Copilot-Reviewed vs Not (4-week rolling mean)",
                "Human comments / PR")
@@ -4186,10 +4185,10 @@ def chart_review_human_comments_comparison(all_items, review_data, output_dir):
     ax.legend(loc="upper left", fontsize=10)
     add_direction_arrow(ax, "down")
     add_insight_box(ax, [
-        "If Copilot catches issues early, humans should need fewer comments",
-        "Solid = PRs with Copilot review; Dashed = PRs without (same color = same repo)",
-        "Gap between lines = Copilot's impact on reducing human review burden",
-        "Includes all merged PRs; human comments from all non-bot reviewers",
+        "Human review comments per merged PR, split by whether Copilot also reviewed",
+        "Solid = w/ Copilot review; Dashed = without (same color = same repo)",
+        "Copilot-reviewed PRs may show MORE human comments due to selection bias",
+        "Better metric: trend within Copilot-reviewed PRs over time (TODO)",
     ])
     fig.tight_layout()
     path = os.path.join(output_dir, "review_human_comments_comparison.png")
@@ -4734,8 +4733,8 @@ def chart_review_churn_copilot_vs_human(all_items, review_data, output_dir):
             (post_human_by_week, "After Human Review"),
         ]):
             ax = axes[ax_idx]
-            if ax_idx == 0 or repo == REVIEW_CHART_REPOS[0]:
-                setup_axes(ax, f"Churn {title_suffix}\n(% of total, P50, 4-week rolling)",
+            if ax_idx == 0 or repo == active_repos[0]:
+                setup_axes(ax, f"Churn {title_suffix} (% of total, P50, 4-week rolling)",
                            "% of total lines")
                 ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 

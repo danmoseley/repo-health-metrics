@@ -156,7 +156,7 @@ def main():
     count = 0
     with gzip.open(csv_path, "rt", newline="") as f:
         reader = csv.reader(f)
-        header = next(reader)
+        next(reader)  # skip header
         batch = []
         for row in reader:
             row = nullify(row)

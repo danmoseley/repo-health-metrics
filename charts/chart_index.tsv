@@ -1,8 +1,6 @@
 hash	title
 02417a5	Community Issue Turnaround (% Closed Within 30 Days, 6-month avg)
 0682c7a	Copilot PRs by Type — dotnet repos aggregated (4-week avg)
-0d68f0c	Churn After Copilot Review, Before Human
-(% of total, P50, 4-week rolling)
 1b1f105	PR Merge Rate (Merged per Week, 52-week rolling avg)
 1e9930e	First Human Comment to Merge — P50 (weekly, 4-week rolling)
 21eb4ea	Community Issue Time-to-Close — 75th Percentile (12-month avg)
@@ -16,6 +14,7 @@ hash	title
 4c91756	Code Churn by Review Phase
 4d62f93	CI-Triggering Pushes per PR — weekly means with linear trend
 4e60af1	Human Review Comments — Copilot-Reviewed vs Not (4-week rolling mean)
+5b62cf0	Churn After Human Review (% of total, P50, 4-week rolling)
 5f4030a	Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)
 613d0f6	Median Age of Open PRs (Monthly Snapshot, 6-month avg)
 663108d	Copilot PRs as % of All PRs (4-week avg)
@@ -28,10 +27,9 @@ hash	title
 85e679f	First-Time Community Contributor Retention (% returning within 12 months)
 8847a7f	Community PR Concentration
 8e55768	Code Churn After First Human Review — % of Total (4-week rolling P50)
+8f43388	Churn After Copilot Review, Before Human (% of total, P50, 4-week rolling)
 9053d2a	Issue Turnaround (% Closed Within 30 Days, 6-month avg)
 95506c4	Median Age of Open Community Issues (Monthly Snapshot, 6-month avg)
-965f342	Churn After Human Review
-(% of total, P50, 4-week rolling)
 97a3b79	Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)
 995f2bd	Open Issues Over Time (6-month rolling avg)
 9a7d188	Net Issue Flow (Opened − Closed per Week, 2-year avg)
