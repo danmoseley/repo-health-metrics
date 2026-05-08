@@ -3836,7 +3836,7 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
 # REVIEW METRICS — Copilot Code Review effectiveness charts
 # ============================================================================
 
-REVIEW_CHART_REPOS = ("dotnet/runtime", "dotnet/roslyn", "microsoft/aspire")
+REVIEW_CHART_REPOS = ("dotnet/runtime", "dotnet/roslyn", "dotnet/maui", "microsoft/aspire")
 
 
 def load_review_data(conn, repo):

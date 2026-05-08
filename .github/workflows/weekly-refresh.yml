@@ -54,7 +54,7 @@ jobs:
         run: python fetch_copilot_requesters.py
 
       - name: Fetch review timeline data
-        run: python fetch_reviews.py --repos dotnet/runtime dotnet/roslyn microsoft/aspire
+        run: python fetch_reviews.py --repos dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
 
       - name: Fetch issue authors (backfill)
         run: python fetch_issue_authors.py --repos ${{ env.REPOS }}
