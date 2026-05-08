@@ -102,6 +102,7 @@ def main():
             total_found += batch_found
             done = min(batch_start + BATCH_SIZE, len(numbers))
             print(f"  {done}/{len(numbers)} — found {batch_found} requesters in this batch")
+            time.sleep(1)  # Rate-limit: avoid overwhelming GitHub API
 
     # Summary
     found = conn.execute("SELECT count(*) FROM items WHERE copilot_requester IS NOT NULL").fetchone()[0]

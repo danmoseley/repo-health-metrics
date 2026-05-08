@@ -6,8 +6,8 @@ This is the *companion* to load_csv.py. After fetching new data
 fetch_copilot_requesters.py / fetch_reviews.py), run this to refresh the
 committed CSV backups so the data survives DB deletion/clones.
 
-Items table is exported by a separate process (data/items.csv.gz is large
-and updated less often). This script handles the smaller auxiliary tables:
+Tables exported:
+  - items                    -> data/items.csv.gz (main data)
   - pr_first_comment          -> data/pr_first_comment.csv
   - pr_push_events            -> data/pr_push_events.csv.gz
   - pr_push_progress          -> data/pr_push_progress.csv
@@ -34,6 +34,12 @@ DATA_DIR = "data"
 
 # (table_name, csv_filename, columns, order_by) — gzip if filename ends in .gz
 EXPORTS = [
+    ("items",
+     "items.csv.gz",
+     ["repo", "number", "created_at", "closed_at", "state", "is_pull_request",
+      "merged_at", "labels", "author", "merged_by", "copilot_requester",
+      "copilot_trailer", "title"],
+     "repo, number"),
     ("pr_first_comment",
      "pr_first_comment.csv",
      ["repo", "number", "first_comment_at", "commenter"],

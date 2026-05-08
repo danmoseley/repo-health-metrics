@@ -39,7 +39,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Restore DB from CSVs
-        run: python load_csv.py
+        run: python load_csv.py --force
 
       - name: Fetch items (incremental)
         run: python fetch.py --update --repos ${{ env.REPOS }}
@@ -65,7 +65,10 @@ jobs:
       - name: Fetch issue authors (backfill, skip if few missing)
         run: |
           MISSING=$(python -c "
-          import sqlite3
+          import sqlite3, sys, os
+          if not os.path.exists('pr-dashboard.db'):
+              print('0')
+              sys.exit(0)
           c = sqlite3.connect('pr-dashboard.db')
           print(c.execute('SELECT count(*) FROM items WHERE author IS NULL OR author = \"\"').fetchone()[0])
           ")

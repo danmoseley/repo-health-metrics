@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild the SQLite database from the compressed CSV export."""
 
+import argparse
 import sqlite3
 import csv
 import gzip
@@ -184,6 +185,11 @@ def load_aux_tables(conn):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Rebuild SQLite DB from CSV exports.")
+    parser.add_argument("--force", action="store_true",
+                        help="Delete existing DB before rebuilding")
+    args = parser.parse_args()
+
     csv_path = Path(CSV_PATH)
     if not csv_path.exists():
         print(f"ERROR: {CSV_PATH} not found")
@@ -191,8 +197,12 @@ def main():
 
     db_path = Path(DB_PATH)
     if db_path.exists():
-        print(f"WARNING: {DB_PATH} already exists. Delete it first to rebuild.")
-        sys.exit(1)
+        if args.force:
+            db_path.unlink()
+            print(f"Deleted existing {DB_PATH}")
+        else:
+            print(f"WARNING: {DB_PATH} already exists. Use --force to rebuild, or delete it manually.")
+            sys.exit(1)
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")

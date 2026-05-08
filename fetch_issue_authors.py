@@ -69,8 +69,14 @@ def backfill_repo(conn, session, repo):
     
     print(f"  {repo}: {missing:,} issues missing author")
     
-    # Fetch all issues page by page
-    url = f"https://api.github.com/repos/{owner}/{name}/issues"
+    # Fetch all issues using Link-header pagination (avoids 422 on repos >10K issues)
+    next_url = f"https://api.github.com/repos/{owner}/{name}/issues"
+    next_params = {
+        "state": "all",
+        "per_page": 100,
+        "sort": "created",
+        "direction": "asc",
+    }
     page = 1
     updated = 0
     skipped_prs = 0
@@ -78,15 +84,7 @@ def backfill_repo(conn, session, repo):
     while True:
         wait_for_rate_limit(session)
         
-        params = {
-            "state": "all",
-            "per_page": 100,
-            "page": page,
-            "sort": "created",
-            "direction": "asc",
-        }
-        
-        resp = session.get(url, params=params)
+        resp = session.get(next_url, params=next_params)
         if resp.status_code == 403:
             print(f"  Rate limited at page {page}, waiting...")
             reset = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
@@ -126,9 +124,18 @@ def backfill_repo(conn, session, repo):
             remaining = missing - updated
             print(f"    page {page}: {updated:,} updated, ~{remaining:,} remaining")
         
-        # Check if we've reached the end
+        # Follow Link header for next page (avoids page-number 422 on large repos)
         link = resp.headers.get("Link", "")
         if 'rel="next"' not in link:
+            break
+        
+        # Parse the next URL from the Link header
+        import re as _re
+        match = _re.search(r'<([^>]+)>;\s*rel="next"', link)
+        if match:
+            next_url = match.group(1)
+            next_params = {}  # URL contains all params
+        else:
             break
         
         page += 1
