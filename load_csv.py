@@ -199,6 +199,11 @@ def main():
     if db_path.exists():
         if args.force:
             db_path.unlink()
+            # Also remove WAL/SHM files left over from previous WAL-mode usage
+            for suffix in ("-wal", "-shm"):
+                sib = Path(DB_PATH + suffix)
+                if sib.exists():
+                    sib.unlink()
             print(f"Deleted existing {DB_PATH}")
         else:
             print(f"WARNING: {DB_PATH} already exists. Use --force to rebuild, or delete it manually.")

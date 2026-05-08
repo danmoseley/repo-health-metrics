@@ -156,7 +156,7 @@ def main():
                     f'commits(first:1) {{ nodes {{ commit {{ message }} }} }} '
                     f'}}'
                 )
-            query = f'{{ repository(owner:"{owner}",name:"{name}") {{ {" ".join(parts)} }} }}'
+            query = f'{{ rateLimit {{ remaining resetAt }} repository(owner:"{owner}",name:"{name}") {{ {" ".join(parts)} }} }}'
 
             data = run_graphql(query)
             if not data or "data" not in data:

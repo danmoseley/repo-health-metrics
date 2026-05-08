@@ -352,7 +352,7 @@ def fetch_pr_review_data(session, token, owner, name, number):
             is_rate_limit = any("rate" in str(e).lower() for e in errors)
             if is_rate_limit:
                 rl = data.get("data", {}).get("rateLimit", {})
-                if not handle_rate_limit(rl, min_remaining=0):
+                if not handle_rate_limit(rl, min_remaining=1):
                     print(f"    Rate limit error for PR #{number}, sleeping 600s...")
                     time.sleep(600)
                 rate_limit_retries += 1
