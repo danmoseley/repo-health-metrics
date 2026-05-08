@@ -3931,15 +3931,16 @@ def _repos_with_copilot_activity(all_items, review_data):
     return result
 
 
-def chart_review_churn_before_after_human(all_items, review_data, output_dir):
-    """⭐ Code Churn Before vs After First Human Touch.
-    Lines changed after first human review as % of total lines changed.
-    Lower = humans find less to fix = Copilot/process caught issues early."""
+def chart_review_churn_before_human(all_items, review_data, output_dir):
+    """⭐ % of code changes completed before first human review.
+    For Copilot-reviewed PRs, what fraction of total lines changed were already
+    done before the first human touched the PR? Ideally approaches 100% as
+    Copilot review gets good enough that humans barely need to request changes."""
     from statistics import median
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Code Churn After First Human Review — % of Total (4-week rolling P50)",
-               "% of lines changed after human review")
+    setup_axes(ax, "Code Changes Completed Before Human Review (4-week rolling P50)",
+               "% of lines changed before human review")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     today = datetime.now().date()
@@ -3966,25 +3967,28 @@ def chart_review_churn_before_after_human(all_items, review_data, output_dir):
             reviews = reviews_by_pr.get(num, [])
             if len(commits) < 2:
                 continue  # Need at least 2 commits to measure before/after
+            # Only include PRs that had Copilot review
+            if not any(_is_copilot_reviewer(r.get("author", "")) for r in reviews):
+                continue
             first_human_ts = _first_human_review_ts(reviews)
             if not first_human_ts:
                 continue  # No human review — can't split
 
-            # Sum lines before/after first human review
+            # Sum lines before vs after first human review
             total_lines = 0
-            after_lines = 0
+            before_lines = 0
             for c in commits:
                 lines = c["additions"] + c["deletions"]
                 total_lines += lines
-                if c["committed_date"] and c["committed_date"] > first_human_ts:
-                    after_lines += lines
+                if c["committed_date"] and c["committed_date"] <= first_human_ts:
+                    before_lines += lines
             if total_lines < 10 or total_lines > 10000:
-                continue  # skip trivial and bulk PRs that dominate the metric
-            ratio = 100.0 * after_lines / total_lines
+                continue  # skip trivial and bulk PRs
+            pct_before = 100.0 * before_lines / total_lines
 
             cd = parse_date(item["created_at"])
             if cd and cd >= cutoff:
-                ratio_by_week[week_start(cd)].append(ratio)
+                ratio_by_week[week_start(cd)].append(pct_before)
 
         if not ratio_by_week:
             continue
@@ -4012,21 +4016,23 @@ def chart_review_churn_before_after_human(all_items, review_data, output_dir):
         print("  (skipping review churn — no data)")
         return
     ymin, ymax = robust_ylim(visible_data)
-    ax.set_ylim(0, min(ymax, 100))
+    ax.set_ylim(max(0, ymin - 5), 105)
+    ax.axhline(y=100, color="green", linestyle="--", alpha=0.3, linewidth=1)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
-    ax.legend(loc="upper left", fontsize=10)
+    ax.legend(loc="lower left", fontsize=10)
     label_line_ends(ax, line_ends)
-    add_direction_arrow(ax, "down")
+    add_direction_arrow(ax, "up")
     add_insight_box(ax, [
-        "What % of a PR's total code changes happen AFTER the first human review comment?",
-        "Lower = humans find less to rework = earlier feedback catches issues",
+        "Of all lines changed in a Copilot-reviewed PR, what % were done",
+        "BEFORE the first human review comment/approval?",
+        "Higher = humans find less to change = Copilot caught issues early",
+        "Goal: approach 100% — humans just glance and merge",
         "P50 of per-PR ratios; PRs with <2 commits, <10 or >10K LOC excluded",
-        "LOC cap filters bulk imports/generated code that cause large oscillations",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_churn_after_human.png")
+    path = os.path.join(output_dir, "review_churn_before_human.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -4668,108 +4674,6 @@ def chart_review_copilot_coverage(all_items, review_data, output_dir):
     print(f"  {path}")
 
 
-def chart_review_churn_copilot_vs_human(all_items, review_data, output_dir):
-    """Post-Copilot-Review Churn vs Post-Human-Review Churn.
-    Three-phase partition: before any review, after Copilot but before human, after human."""
-    from statistics import median
-
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
-
-    today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
-
-    active_repos = _repos_with_copilot_activity(all_items, review_data)
-    for repo in active_repos:
-        items = all_items.get(repo)
-        rd = review_data.get(repo)
-        if not items or not rd:
-            continue
-        commits_by_pr = rd["commits_by_pr"]
-        reviews_by_pr = rd["reviews_by_pr"]
-
-        post_copilot_by_week = defaultdict(list)
-        post_human_by_week = defaultdict(list)
-
-        for item in items:
-            if not item.get("is_pr") or not item.get("merged_at"):
-                continue
-            num = item["number"]
-            commits = commits_by_pr.get(num, [])
-            reviews = reviews_by_pr.get(num, [])
-            if not commits:
-                continue
-
-            first_copilot = _first_copilot_review_ts(reviews)
-            first_human = _first_human_review_ts(reviews)
-            if not first_copilot or not first_human:
-                continue  # Need both phases
-            if first_copilot >= first_human:
-                continue  # Copilot must review before human for this analysis
-
-            cd = parse_date(item["created_at"])
-            if not cd or cd < cutoff:
-                continue
-            wk = week_start(cd)
-
-            # Phase B: after Copilot, before human
-            phase_b = sum(c["additions"] + c["deletions"] for c in commits
-                         if c["committed_date"] and first_copilot < c["committed_date"] <= first_human)
-            # Phase C: after human
-            phase_c = sum(c["additions"] + c["deletions"] for c in commits
-                         if c["committed_date"] and c["committed_date"] > first_human)
-
-            total = sum(c["additions"] + c["deletions"] for c in commits)
-            if total < 10 or total > 10000:
-                continue  # skip trivial and bulk PRs
-            post_copilot_by_week[wk].append(100.0 * phase_b / total)
-            post_human_by_week[wk].append(100.0 * phase_c / total)
-
-        # Plot each phase using repo color
-        repo_color = get_color(repo)
-        short = get_short(repo)
-        for ax_idx, (data, title_suffix) in enumerate([
-            (post_copilot_by_week, "After Copilot Review, Before Human"),
-            (post_human_by_week, "After Human Review"),
-        ]):
-            ax = axes[ax_idx]
-            if ax_idx == 0 or repo == active_repos[0]:
-                setup_axes(ax, f"Churn {title_suffix} (% of total, P50, 4-week rolling)",
-                           "% of total lines")
-                ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
-
-            if not data:
-                continue
-            weeks_x, p50s = [], []
-            w = max(min(data.keys()), cutoff)
-            w = week_start(w)
-            while w <= last_complete_week:
-                window_vals = []
-                for k in range(4):
-                    window_vals.extend(data.get(w - timedelta(weeks=k), []))
-                if len(window_vals) >= 3:
-                    weeks_x.append(w)
-                    p50s.append(median(window_vals))
-                w += timedelta(weeks=1)
-            if weeks_x:
-                ax.plot(weeks_x, p50s, color=repo_color, label=short,
-                        linewidth=2, alpha=0.85)
-                max_val = max(p50s) if p50s else 50
-                ax.set_ylim(0, max(min(max_val * 1.5, 100), 1))
-                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-                ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-                ax.xaxis.set_minor_locator(mdates.MonthLocator())
-                ax.legend(loc="upper right", fontsize=9)
-
-    fig.suptitle("Code Churn by Review Phase (Copilot reviews first → Human reviews second)",
-                 fontsize=13, fontweight="bold", y=0.98)
-    _stamp_chart(axes[0], "Code Churn by Review Phase")
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    path = os.path.join(output_dir, "review_churn_by_phase.png")
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-    print(f"  {path}")
-
 
 def main():
     import argparse
@@ -4939,8 +4843,7 @@ def main():
         chart_review_copilot_comment_density(all_items, all_review_data, output_dir)
         chart_review_suggestion_rate(all_items, all_review_data, output_dir)
         chart_review_human_comments_comparison(all_items, all_review_data, output_dir)
-        chart_review_churn_before_after_human(all_items, all_review_data, output_dir)
-        chart_review_churn_copilot_vs_human(all_items, all_review_data, output_dir)
+        chart_review_churn_before_human(all_items, all_review_data, output_dir)
         chart_review_time_to_first_feedback(all_items, all_review_data, output_dir)
         chart_review_copilot_to_human_approval(all_items, all_review_data, output_dir)
         chart_review_human_participation(all_items, all_review_data, output_dir)
