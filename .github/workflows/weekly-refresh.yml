@@ -3,7 +3,7 @@ name: Weekly Data Refresh
 on:
   schedule:
     # Monday 06:00 UTC
-    - cron: '0 6 * * 1'
+    - cron: '17 3 * * 1'
   workflow_dispatch:  # allow manual trigger
 
 concurrency:
