@@ -126,6 +126,7 @@ def main():
             merged_by TEXT,
             copilot_requester TEXT,
             copilot_trailer INTEGER,
+            title TEXT,
             PRIMARY KEY (repo, number)
         );
         CREATE INDEX idx_items_repo_type ON items(repo, is_pull_request);
@@ -147,6 +148,7 @@ def main():
     ITEMS_COLUMNS = [
         "repo", "number", "created_at", "closed_at", "state", "is_pull_request",
         "merged_at", "labels", "author", "merged_by", "copilot_requester", "copilot_trailer",
+        "title",
     ]
     col_list = ",".join(ITEMS_COLUMNS)
     placeholders = ",".join("?" * len(ITEMS_COLUMNS))

@@ -9,6 +9,8 @@ For each merged PR in the target repos (last 12 months by default), fetches:
   - PR title: stored in items table for revert detection
 
 Stores data locally so future charts can be built without re-querying.
+NOTE: New tables are not yet in the CSV backup/restore flow (backup_csvs.py / load_csv.py).
+Data is only in the local DB until those scripts are updated.
 
 Uses GraphQL timelineItems + reviewThreads queries. Resumable via checkpoint table.
 
@@ -112,6 +114,7 @@ query($owner: String!, $name: String!, $number: Int!,
                 body
                 path
                 createdAt
+                author { login __typename }
               }
             }
           }
@@ -390,11 +393,15 @@ def fetch_pr_review_data(session, token, owner, name, number):
 
                     # Extract inline review comments from this review
                     for cnode in (node.get("comments", {}).get("nodes", []) or []):
+                        # Use per-comment author if available, fall back to review author
+                        comment_author = cnode.get("author") or {}
+                        c_login = comment_author.get("login", "") or review["author"]
+                        c_type = comment_author.get("__typename", "") or review["author_type"]
                         all_comments.append({
                             "comment_id": cnode.get("databaseId", 0),
                             "review_id": review["review_id"],
-                            "author": review["author"],
-                            "author_type": review["author_type"],
+                            "author": c_login,
+                            "author_type": c_type,
                             "body_has_suggestion": 1 if has_suggestion(cnode.get("body")) else 0,
                             "path": cnode.get("path", ""),
                             "created_at": cnode.get("createdAt", ""),
@@ -518,6 +525,19 @@ def _thread_comment_keys(thread):
 def fetch_repo_reviews(conn, session, token, repo, since_date):
     """Fetch review data for all recent merged PRs in a repo."""
     owner, name = repo.split("/")
+
+    # Preflight: ensure items table exists and has data for this repo
+    try:
+        item_count = conn.execute(
+            "SELECT COUNT(*) FROM items WHERE repo = ? AND is_pull_request = 1",
+            (repo,)
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        print(f"  {repo}: items table not found — run load_csv.py or fetch.py first")
+        return
+    if item_count == 0:
+        print(f"  {repo}: no PR data in items table — run fetch.py first")
+        return
 
     # Get merged PRs that need fetching (not yet in progress table or not complete)
     since_str = since_date.strftime("%Y-%m-%dT%H:%M:%SZ")
