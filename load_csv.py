@@ -126,6 +126,7 @@ def main():
             merged_by TEXT,
             copilot_requester TEXT,
             copilot_trailer INTEGER,
+            title TEXT,
             PRIMARY KEY (repo, number)
         );
         CREATE INDEX idx_items_repo_type ON items(repo, is_pull_request);
@@ -143,37 +144,35 @@ def main():
         );
     """)
 
+    # Column list must match the CREATE TABLE above — update both together
+    ITEMS_COLUMNS = [
+        "repo", "number", "created_at", "closed_at", "state", "is_pull_request",
+        "merged_at", "labels", "author", "merged_by", "copilot_requester", "copilot_trailer",
+        "title",
+    ]
+    col_list = ",".join(ITEMS_COLUMNS)
+    placeholders = ",".join("?" * len(ITEMS_COLUMNS))
+    insert_sql = f"INSERT OR REPLACE INTO items ({col_list}) VALUES ({placeholders})"
+
     print(f"Loading {CSV_PATH}...")
     count = 0
     with gzip.open(csv_path, "rt", newline="") as f:
         reader = csv.reader(f)
-        header = next(reader)
-        ncols = len(header)
+        next(reader)  # skip header
         batch = []
         for row in reader:
             row = nullify(row)
-            # Pad with None if CSV has fewer columns than table
-            while len(row) < 12:
+            while len(row) < len(ITEMS_COLUMNS):
                 row.append(None)
-            batch.append(row[:12])
+            batch.append(row[:len(ITEMS_COLUMNS)])
             if len(batch) >= 10000:
-                conn.executemany(
-                    "INSERT OR REPLACE INTO items "
-                    "(repo, number, created_at, closed_at, state, is_pull_request, "
-                    "merged_at, labels, author, merged_by, copilot_requester, copilot_trailer) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", batch
-                )
+                conn.executemany(insert_sql, batch)
                 count += len(batch)
                 batch = []
                 if count % 100000 == 0:
                     print(f"  {count:,} rows...")
         if batch:
-            conn.executemany(
-                "INSERT OR REPLACE INTO items "
-                "(repo, number, created_at, closed_at, state, is_pull_request, "
-                "merged_at, labels, author, merged_by, copilot_requester, copilot_trailer) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", batch
-            )
+            conn.executemany(insert_sql, batch)
             count += len(batch)
 
     conn.commit()

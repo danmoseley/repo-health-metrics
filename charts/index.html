@@ -83,6 +83,16 @@
     <a href="#dash-vscode">vscode</a>
     <a href="#dash-rust">rust</a>
     <a href="#dash-go">go</a>
+    <span class="section">Copilot Code Review</span>
+    <a href="#review-coverage"><b>Copilot Review Coverage (Review metric)</b></a>
+    <a href="#review-density"><b>Copilot Comment Density (Review metric)</b></a>
+    <a href="#review-suggestions"><b>Suggestion Rate (Review metric)</b></a>
+    <a href="#review-human-comments"><b>Human Comments Comparison (Review metric)</b></a>
+    <a href="#review-churn"><b>Code Churn After Human Review (Review metric)</b></a>
+    <a href="#review-churn-phase"><b>Churn by Review Phase (Review metric)</b></a>
+    <a href="#review-feedback-time"><b>Time to First Feedback (Review metric)</b></a>
+    <a href="#review-approval"><b>Copilot→Human Approval (Review metric)</b></a>
+    <a href="#review-participation"><b>Human Reviewer Participation (Review metric)</b></a>
   </div>
 </div>
 
@@ -100,6 +110,7 @@
   </ul>
   <h2 style="margin-top: 14px;">Potential Actions</h2>
   <ul>
+    <li><span class="tag">Copilot Code Review impact (NEW):</span> See the charts below for current data on Copilot review coverage, comment density, churn reduction, and time-to-first-feedback. Early signs suggest AI review reduces human rework; the key metric to watch is whether human review effort decreases over time as Copilot review improves.</li>
     <li><span class="tag">Reduce community PR merge latency:</span> maui's 8× gap and runtime's 2× gap potentially drive the retention drop. Faster first review could help?</li>
     <li><span class="tag">Nurture top contributors:</span> Top 10% of community authors (~110 people in runtime) produce ~76% of community PRs. Identify and invest in these contributors — losing even a few has outsized impact.</li>
     <li><span class="tag">Diversify maui community:</span> High dependence on Syncfusion for community PRs since mid-2024. Broaden the contributor base to reduce single-partner dependency.</li>
@@ -147,6 +158,18 @@
 <div class="chart" id="community-retention"><img src="community_retention.png" alt="First-Timer Retention"></div>
 <div class="chart" id="community-latency"><img src="community_merge_latency.png" alt="Community Merge Latency"></div>
 <div class="chart" id="community-gini"><img src="community_gini.png" alt="Concentration Over Time"></div>
+
+<h2 id="review-metrics">Copilot Code Review Metrics</h2>
+
+<div class="chart" id="review-coverage"><img src="review_copilot_coverage.png" alt="Copilot Review Coverage"></div>
+<div class="chart" id="review-density"><img src="review_copilot_comment_density.png" alt="Copilot Comment Density"></div>
+<div class="chart" id="review-suggestions"><img src="review_suggestion_rate.png" alt="Suggestion Rate"></div>
+<div class="chart" id="review-human-comments"><img src="review_human_comments_comparison.png" alt="Human Comments Comparison"></div>
+<div class="chart" id="review-churn"><img src="review_churn_after_human.png" alt="Code Churn After Human Review"></div>
+<div class="chart" id="review-churn-phase"><img src="review_churn_by_phase.png" alt="Churn by Review Phase"></div>
+<div class="chart" id="review-feedback-time"><img src="review_time_to_first_feedback.png" alt="Time to First Feedback"></div>
+<div class="chart" id="review-approval"><img src="review_copilot_to_approval.png" alt="Copilot to Human Approval"></div>
+<div class="chart" id="review-participation"><img src="review_human_participation.png" alt="Human Reviewer Participation"></div>
 
 <h2 id="dashboards">Per-Repo Dashboards</h2>
 
