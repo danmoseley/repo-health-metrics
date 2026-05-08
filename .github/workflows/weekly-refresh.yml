@@ -14,7 +14,7 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   REPOS: >-
-    dotnet/runtime dotnet/roslyn dotnet/maui dotnet/aspire
+    dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
     microsoft/vscode golang/go rust-lang/rust
 
 jobs:
@@ -49,6 +49,9 @@ jobs:
 
       - name: Fetch Copilot commit trailers
         run: python fetch_copilot_commits.py --repos ${{ env.REPOS }}
+
+      - name: Fetch Copilot PR requesters
+        run: python fetch_copilot_requesters.py
 
       - name: Fetch review timeline data
         run: python fetch_reviews.py --repos dotnet/runtime dotnet/roslyn microsoft/aspire
