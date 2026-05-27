@@ -48,6 +48,27 @@ This repo is owned by `danmoseley`. If `gh` commands return 403, run
 - Require minimum sample size (≥3–5 data points per window) before plotting.
 - Cap outliers sensibly (e.g., time-to-feedback capped at 168 hours / 1 week).
 - Use `robust_ylim()` for y-axis scaling where appropriate.
+- Keep chart titles single-line (no `\n`). Titles are written to
+  `charts/chart_index.tsv`; embedded newlines corrupt the TSV.
+- Keep chart labels/text honest and synchronized with implementation:
+  title, y-axis units, insight bullets, and PR description must match the actual
+  windowing/bucketing/math (no stale claims like "52-week avg" on daily charts).
+- Avoid hardcoded narrative claims in insights (e.g., specific trend causes or
+  fixed percentages) unless directly supported by the rendered data.
+
+### Chart Change Workflow (Recurring Feedback)
+
+- For chart-only changes, prefer existing local data (`load_csv.py` + `analyze.py`);
+  do not re-fetch from GitHub unless explicitly needed.
+- Avoid artificial trailing drops from incomplete buckets. End each series at the
+  latest date with real data (or explicitly extrapolate), never at synthetic
+  future buckets.
+- Keep PR scope tight: when adding/modifying one chart, avoid unrelated chart or
+  file churn. If extra files appear, clean up before requesting review.
+- Regenerate and commit required artifacts for the changed chart(s), including
+  `charts/chart_index.tsv` when titles/charts are added or changed.
+- If reviewer feedback reveals a recurring graph/report mistake that is now fixed,
+  update this file in the same PR so future agents inherit the guidance.
 
 ## Hydration Scripts
 
