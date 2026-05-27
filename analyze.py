@@ -285,6 +285,12 @@ def compute_weekly_series(items, end_date=None):
 
     first_week = min(all_dates)
     last_week = week_start(end_date)
+    # Cap at the latest week actually present in the data.  When the database
+    # hasn't been refreshed recently, extending to end_date appends trailing
+    # all-zero weeks that create an artificial dip in rolling-average charts.
+    latest_data_week = max(all_dates)
+    if latest_data_week < last_week:
+        last_week = latest_data_week
     weeks = []
     w = first_week
     while w <= last_week:
@@ -1178,9 +1184,24 @@ def chart_open_pr_age(all_items, output_dir):
             continue
         prs.sort(key=lambda x: x[0])
 
-        # Monthly snapshots
+        # Monthly snapshots: cap at the latest date actually in the data so
+        # months after the DB cutoff don't show artificially inflated ages
+        # (stale DB is missing recent merges, so closed PRs look still-open).
+        latest_event = max(
+            (d for d in (cd for cd, _ in prs) if d is not None),
+            default=None,
+        )
+        latest_close = max(
+            (cl for _, cl in prs if cl is not None),
+            default=None,
+        )
+        if latest_close and (latest_event is None or latest_close > latest_event):
+            latest_event = latest_close
         first_month = prs[0][0].replace(day=1)
-        last_month = datetime.now().date().replace(day=1)
+        last_month = min(
+            datetime.now().date().replace(day=1),
+            latest_event.replace(day=1) if latest_event else datetime.now().date().replace(day=1),
+        )
         months = []
         medians = []
         m = first_month
@@ -2960,10 +2981,20 @@ def chart_pr_merge_rate_zoomed(all_items, output_dir):
 
     today = datetime.now().date()
     cutoff = today - timedelta(days=120)
-    # Drop today (incomplete) to avoid a false trailing dip
-    last_day = today - timedelta(days=1)
     # Need 6 days of pre-window history so the first plotted point has a full 7-day window
     fetch_start = cutoff - timedelta(days=6)
+    # Drop today (incomplete) to avoid a false trailing dip.  Also cap at the
+    # latest merged_at date actually present in the data: when the database
+    # hasn't been refreshed recently the tail of the window would otherwise be
+    # all-zeros, producing an artificial "dropping in May"-style cliff.
+    _latest_merge = max(
+        (parse_date(it.get("merged_at"))
+         for items in all_items.values()
+         for it in items
+         if it.get("is_pr") and it.get("merged_at")),
+        default=None,
+    )
+    last_day = min(today - timedelta(days=1), _latest_merge) if _latest_merge else today - timedelta(days=1)
 
     visible_data = []
     line_ends = []
@@ -3014,6 +3045,7 @@ def chart_pr_merge_rate_zoomed(all_items, output_dir):
         "Zoomed view of the long-term merge rate chart — last 4 months at daily resolution",
         "Useful for spotting recent dips/spikes (releases, on-call rotations, holiday slowdowns)",
         "Each point = PRs merged in the trailing 7 days, evaluated daily",
+        "Chart ends at the latest merged date in the DB — refresh the DB to extend the window",
         "vscode, rust, runtime, vcpkg, roslyn relatively flat; maui and aspire trending down (−73% and −42% from peak)",
     ])
     _pad_date_xlim(fig)
@@ -3028,8 +3060,20 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
     """Net PR Flow (Opened - Merged) over last 120 days, daily 7-day rolling sum."""
     today = datetime.now().date()
     cutoff = today - timedelta(days=120)
-    last_day = today - timedelta(days=1)
     fetch_start = cutoff - timedelta(days=6)
+    # Drop today (incomplete) to avoid a false trailing dip.  Also cap at the
+    # latest date actually present in the data (max of created_at / merged_at)
+    # so a stale database doesn't produce an artificial cliff of all-zeros.
+    _latest_date = max(
+        (
+            max(d for d in (parse_date(it.get("created_at")), parse_date(it.get("merged_at"))) if d is not None)
+            for items in all_items.values()
+            for it in items
+            if it.get("is_pr") and (it.get("created_at") or it.get("merged_at"))
+        ),
+        default=None,
+    )
+    last_day = min(today - timedelta(days=1), _latest_date) if _latest_date else today - timedelta(days=1)
 
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "Net PR Flow — last 4 months (7-day trailing sum)",
