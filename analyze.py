@@ -938,9 +938,22 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
                "PRs Merged / Week (28-day rolling sum, ÷4)")
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
-    # Drop today (incomplete) to avoid a false trailing dip
-    last_day = today - timedelta(days=1)
+    # Cap to the latest available merged date so stale local snapshots don't add
+    # trailing zero-days that create an artificial final dip.
+    latest_merged_day = None
+    for items in all_items.values():
+        for it in items:
+            if not it.get("is_pr"):
+                continue
+            md = parse_date(it.get("merged_at"))
+            if md and (latest_merged_day is None or md > latest_merged_day):
+                latest_merged_day = md
+    if latest_merged_day is None:
+        plt.close(fig)
+        return
+
+    last_day = min(today - timedelta(days=1), latest_merged_day)
+    cutoff = last_day - timedelta(days=364)
     # Need 27 days of pre-window history so the first plotted point has a full 28-day window
     fetch_start = cutoff - timedelta(days=27)
 
