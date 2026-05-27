@@ -953,11 +953,13 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
                 daily[md] += 1
         if not daily:
             continue
-        # Build weekly series and compute 28-day trailing sum at each Sunday in [cutoff, last_day]
+        # Build weekly series on Mondays and compute 28-day trailing sum at each point
         # Divide by 4 to express as PRs/week average
         weeks = []
         rolling = []
-        d = cutoff
+        d = week_start(cutoff)
+        if d < cutoff:
+            d += timedelta(days=7)
         while d <= last_day:
             s = sum(daily.get(d - timedelta(days=k), 0) for k in range(28)) / 4.0
             weeks.append(d)
@@ -983,12 +985,14 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
     ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    add_direction_arrow(ax, "up")
+    total_start = sum(series[0] for series in visible_data)
+    total_end = sum(series[-1] for series in visible_data)
+    add_direction_arrow(ax, "up" if total_end >= total_start else "down")
     add_insight_box(ax, [
         "12-month view of PR merge rate — weekly points, each = 28-day trailing avg (÷4)",
         "Bridges the long-term trend chart and the 4-month daily detail chart",
         "Each point = average PRs merged per week over the preceding 4 weeks",
-        "Seasonal patterns (e.g. .NET release freeze in Nov) are visible at this granularity",
+        "Weekly cadence smooths day-to-day noise while preserving medium-term shifts",
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
