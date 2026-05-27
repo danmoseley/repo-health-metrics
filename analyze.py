@@ -20,7 +20,7 @@ Usage:
 import sqlite3
 import os
 import sys
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 
@@ -926,6 +926,113 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     _pad_date_xlim(fig)
     fig.tight_layout()
     path = os.path.join(output_dir, "pr_merge_rate_comparison.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
+def chart_pr_merge_rate_12m(all_items, output_dir):
+    """PR merge rate over last 12 months, weekly data points with 28-day trailing sum."""
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PR Merge Rate — last 12 months (28-day trailing sum)",
+               "PRs Merged / Week (28-day rolling sum, ÷4)")
+
+    today = datetime.now().date()
+
+    visible_data = []
+    line_ends = []
+    for repo, items in all_items.items():
+        if not items or repo in GERRIT_REPOS:
+            continue
+        latest_merged_day = max(
+            (parse_date(it.get("merged_at"))
+             for it in items
+             if it.get("is_pr") and it.get("merged_at")),
+            default=None,
+        )
+        if latest_merged_day is None:
+            continue
+        last_day = min(today - timedelta(days=1), latest_merged_day)
+        cutoff = last_day - timedelta(days=364)
+        # Need 27 days of pre-window history so the first plotted point has a full 28-day window
+        fetch_start = cutoff - timedelta(days=27)
+        # Daily merged counts within the (extended) window
+        daily = defaultdict(int)
+        for it in items:
+            if not it.get("is_pr"):
+                continue
+            md = parse_date(it.get("merged_at"))
+            if md and fetch_start <= md <= last_day:
+                daily[md] += 1
+        if not daily:
+            continue
+        # Build weekly series on Mondays and compute 28-day trailing sum at each point
+        # Divide by 4 to express as PRs/week average
+        weeks = []
+        rolling = []
+        d = week_start(cutoff)
+        if d < cutoff:
+            d += timedelta(days=7)
+        while d <= last_day:
+            s = sum(daily.get(d - timedelta(days=k), 0) for k in range(28)) / 4.0
+            weeks.append(d)
+            rolling.append(s)
+            d += timedelta(days=7)
+        if not any(rolling):
+            continue
+        ax.plot(weeks, rolling,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        if len(weeks) >= 2:
+            x = mdates.date2num(weeks)
+            slope, intercept = np.polyfit(x, rolling, 1)
+            trend = slope * x + intercept
+            ax.plot(weeks, trend,
+                    color=get_color(repo), linestyle=":",
+                    linewidth=1.5, alpha=0.35)
+            # Compute % change per month from the regression line
+            mid_val = trend[len(trend) // 2]
+            if mid_val > 0:
+                pct_per_day = slope / mid_val * 100
+                pct_per_month = pct_per_day * 30.44
+                direction = "+" if pct_per_month >= 0 else "\u2212"
+                label = f"{direction}{abs(pct_per_month):.1f}%/mo"
+                # Place at 40% along the trend line to avoid line-end labels
+                idx = max(1, len(weeks) * 2 // 5)
+                ax.annotate(label, xy=(weeks[idx], trend[idx]),
+                            fontsize=7, color=get_color(repo), alpha=0.7,
+                            ha="center", va="bottom",
+                            xytext=(0, 4), textcoords="offset points")
+        visible_data.append(rolling)
+        line_ends.append((weeks, rolling, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
+    ax.set_ylim(ymin, max(ymax, 50))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    total_start = sum(series[0] for series in visible_data)
+    total_end = sum(series[-1] for series in visible_data)
+    add_direction_arrow(ax, "up" if total_end >= total_start else "down")
+    add_insight_box(ax, [
+        "12-month view of PR merge rate — weekly points, each = 28-day trailing avg (÷4)",
+        "Bridges the long-term 52-week rolling chart and shorter-window views",
+        "Each point = average PRs merged per week over the preceding 4 weeks",
+        "Each line ends at that repo's latest merged date in the DB",
+        "Weekly cadence smooths day-to-day noise while preserving medium-term shifts",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pr_merge_rate_12m.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
@@ -5911,6 +6018,7 @@ def main():
         chart_open_prs_comparison(all_series, output_dir)
         chart_net_flow_comparison(all_series, output_dir)
         chart_pr_merge_rate_comparison(all_series, output_dir)
+        chart_pr_merge_rate_12m(all_items, output_dir)
         chart_pr_merge_rate_zoomed(all_items, output_dir)
         chart_net_pr_flow_comparison(all_series, output_dir)
         chart_pr_opened_vs_merged_zoomed(all_items, output_dir)
