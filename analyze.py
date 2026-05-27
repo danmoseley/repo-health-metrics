@@ -3057,7 +3057,7 @@ def chart_pr_merge_rate_zoomed(all_items, output_dir):
 
 
 def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
-    """Net PR Flow (Opened - Merged) over last 120 days, daily 7-day rolling sum."""
+    """Net PR Flow (Opened - Merged) over last 120 days, lightly smoothed."""
     today = datetime.now().date()
     cutoff = today - timedelta(days=120)
     fetch_start = cutoff - timedelta(days=6)
@@ -3076,8 +3076,8 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
     last_day = min(today - timedelta(days=1), _latest_date) if _latest_date else today - timedelta(days=1)
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Net PR Flow — last 4 months (7-day trailing sum)",
-               "Opened − Merged / Week (7-day rolling sum)")
+    setup_axes(ax, "Net PR Flow — last 4 months (7-day trailing sum, lightly smoothed)",
+               "Opened − Merged / Week (7-day rolling sum, smoothed)")
 
     ax.axhline(y=0, color="black", linewidth=0.5, alpha=0.5)
 
@@ -3107,11 +3107,12 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
             days.append(d)
             rolling.append(o - m)
             d += timedelta(days=1)
-        ax.plot(days, rolling,
+        smoothed = smooth(rolling, window=5)
+        ax.plot(days, smoothed,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
-        visible_data.append(rolling)
-        line_ends.append((days, rolling, get_short(repo), get_color(repo)))
+        visible_data.append(smoothed)
+        line_ends.append((days, smoothed, get_short(repo), get_color(repo)))
 
     if not visible_data:
         plt.close(fig)
@@ -3129,7 +3130,7 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
     add_insight_box(ax, [
         "Zoomed view of net PR flow — last 4 months at daily resolution",
         "Spikes upward = PRs piling up; downward = team draining backlog",
-        "Each point = (opened − merged) in the trailing 7 days, evaluated daily",
+        "Each point = (opened − merged) in the trailing 7 days, lightly smoothed",
         "vscode and rust show large positive swings (backlog churn); maui swings sharply both directions",
     ])
     _pad_date_xlim(fig)
