@@ -933,6 +933,8 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
 
 def chart_pr_merge_rate_12m(all_items, output_dir):
     """PR merge rate over last 12 months, weekly data points with 28-day trailing sum."""
+    import numpy as np
+
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, "PR Merge Rate — last 12 months (28-day trailing sum)",
                "PRs Merged / Week (28-day rolling sum, ÷4)")
@@ -983,6 +985,13 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
         ax.plot(weeks, rolling,
                 color=get_color(repo), label=get_short(repo),
                 linewidth=1.5, alpha=0.85)
+        if len(weeks) >= 2:
+            x = mdates.date2num(weeks)
+            slope, intercept = np.polyfit(x, rolling, 1)
+            trend = slope * x + intercept
+            ax.plot(weeks, trend,
+                    color=get_color(repo), linestyle=":",
+                    linewidth=1.5, alpha=0.35)
         visible_data.append(rolling)
         line_ends.append((weeks, rolling, get_short(repo), get_color(repo)))
 
