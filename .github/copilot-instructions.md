@@ -9,6 +9,23 @@
 - Backup DB: `python backup_csvs.py`
 - Generate charts: `python analyze.py`
 
+## Data Preservation
+
+**Always commit fetched data back to the repo.** GitHub API calls are slow and
+rate-limited (a full fetch is hours-long), so re-querying for new chart work is
+wasteful. The committed CSVs let anyone reproduce the dashboard locally without
+hitting GitHub.
+
+After running any fetcher (`fetch.py`, `fetch_comments.py`, `fetch_pr_pushes.py`,
+`fetch_mergers.py`, `fetch_copilot_requesters.py`):
+
+```bash
+python backup_csvs.py            # exports auxiliary tables to data/*.csv[.gz]
+# (items.csv.gz is exported separately — see analysis.md)
+git add data/*.csv*
+git commit -m "Refresh data backups"
+```
+
 ## GitHub CLI Auth
 
 This repo is owned by `danmoseley`. If `gh` commands return 403, run
