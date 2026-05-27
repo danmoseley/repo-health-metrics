@@ -992,6 +992,19 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
             ax.plot(weeks, trend,
                     color=get_color(repo), linestyle=":",
                     linewidth=1.5, alpha=0.35)
+            # Compute % change per month from the regression line
+            mid_val = trend[len(trend) // 2]
+            if mid_val > 0:
+                pct_per_day = slope / mid_val * 100
+                pct_per_month = pct_per_day * 30.44
+                direction = "+" if pct_per_month >= 0 else "\u2212"
+                label = f"{direction}{abs(pct_per_month):.1f}%/mo"
+                # Place at 40% along the trend line to avoid line-end labels
+                idx = max(1, len(weeks) * 2 // 5)
+                ax.annotate(label, xy=(weeks[idx], trend[idx]),
+                            fontsize=7, color=get_color(repo), alpha=0.7,
+                            ha="center", va="bottom",
+                            xytext=(0, 4), textcoords="offset points")
         visible_data.append(rolling)
         line_ends.append((weeks, rolling, get_short(repo), get_color(repo)))
 
