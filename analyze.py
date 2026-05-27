@@ -3065,10 +3065,12 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
     # latest date actually present in the data (max of created_at / merged_at)
     # so a stale database doesn't produce an artificial cliff of all-zeros.
     _latest_date = max(
-        (parse_date(it.get("created_at")) or parse_date(it.get("merged_at"))
-         for items in all_items.values()
-         for it in items
-         if it.get("is_pr") and (it.get("created_at") or it.get("merged_at"))),
+        (
+            max(d for d in (parse_date(it.get("created_at")), parse_date(it.get("merged_at"))) if d is not None)
+            for items in all_items.values()
+            for it in items
+            if it.get("is_pr") and (it.get("created_at") or it.get("merged_at"))
+        ),
         default=None,
     )
     last_day = min(today - timedelta(days=1), _latest_date) if _latest_date else today - timedelta(days=1)
