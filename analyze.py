@@ -925,6 +925,79 @@ def chart_pr_merge_rate_comparison(all_series, output_dir):
     print(f"  {path}")
 
 
+def chart_pr_merge_rate_12m(all_items, output_dir):
+    """PR merge rate over last 12 months, weekly data points with 28-day trailing sum."""
+    fig, ax = plt.subplots(figsize=(14, 7))
+    setup_axes(ax, "PR Merge Rate — last 12 months (28-day trailing sum)",
+               "PRs Merged / Week (28-day rolling sum, ÷4)")
+
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=365)
+    # Drop today (incomplete) to avoid a false trailing dip
+    last_day = today - timedelta(days=1)
+    # Need 27 days of pre-window history so the first plotted point has a full 28-day window
+    fetch_start = cutoff - timedelta(days=27)
+
+    visible_data = []
+    line_ends = []
+    for repo, items in all_items.items():
+        if not items or repo in GERRIT_REPOS:
+            continue
+        # Daily merged counts within the (extended) window
+        daily = defaultdict(int)
+        for it in items:
+            if not it.get("is_pr"):
+                continue
+            md = parse_date(it.get("merged_at"))
+            if md and fetch_start <= md <= last_day:
+                daily[md] += 1
+        if not daily:
+            continue
+        # Build weekly series and compute 28-day trailing sum at each Sunday in [cutoff, last_day]
+        # Divide by 4 to express as PRs/week average
+        weeks = []
+        rolling = []
+        d = cutoff
+        while d <= last_day:
+            s = sum(daily.get(d - timedelta(days=k), 0) for k in range(28)) / 4.0
+            weeks.append(d)
+            rolling.append(s)
+            d += timedelta(days=7)
+        if not any(rolling):
+            continue
+        ax.plot(weeks, rolling,
+                color=get_color(repo), label=get_short(repo),
+                linewidth=1.5, alpha=0.85)
+        visible_data.append(rolling)
+        line_ends.append((weeks, rolling, get_short(repo), get_color(repo)))
+
+    if not visible_data:
+        plt.close(fig)
+        return
+
+    ymin, ymax = robust_ylim(visible_data, percentile=0.99)
+    ax.set_ylim(ymin, max(ymax, 50))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.WeekdayLocator(byweekday=0))
+    ax.xaxis.set_minor_formatter(mdates.DateFormatter(""))
+    ax.legend(loc="upper left", fontsize=10)
+    label_line_ends(ax, line_ends)
+    add_direction_arrow(ax, "up")
+    add_insight_box(ax, [
+        "12-month view of PR merge rate — weekly points, each = 28-day trailing avg (÷4)",
+        "Bridges the long-term trend chart and the 4-month daily detail chart",
+        "Each point = average PRs merged per week over the preceding 4 weeks",
+        "Seasonal patterns (e.g. .NET release freeze in Nov) are visible at this granularity",
+    ])
+    _pad_date_xlim(fig)
+    fig.tight_layout()
+    path = os.path.join(output_dir, "pr_merge_rate_12m.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"  {path}")
+
+
 def _dashboard_insight(ax, text, loc="upper center"):
     """Small insight annotation for dashboard sub-panels, matching main chart style."""
     positions = {
@@ -5866,6 +5939,7 @@ def main():
         chart_open_prs_comparison(all_series, output_dir)
         chart_net_flow_comparison(all_series, output_dir)
         chart_pr_merge_rate_comparison(all_series, output_dir)
+        chart_pr_merge_rate_12m(all_items, output_dir)
         chart_pr_merge_rate_zoomed(all_items, output_dir)
         chart_net_pr_flow_comparison(all_series, output_dir)
         chart_pr_opened_vs_merged_zoomed(all_items, output_dir)
