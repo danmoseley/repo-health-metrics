@@ -20,7 +20,7 @@ Usage:
 import sqlite3
 import os
 import sys
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 
@@ -1025,7 +1025,7 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
     add_direction_arrow(ax, "up" if total_end >= total_start else "down")
     add_insight_box(ax, [
         "12-month view of PR merge rate — weekly points, each = 28-day trailing avg (÷4)",
-        "Bridges the long-term trend chart and the 4-month daily detail chart",
+        "Bridges the long-term 52-week rolling chart and shorter-window views",
         "Each point = average PRs merged per week over the preceding 4 weeks",
         "Each line ends at that repo's latest merged date in the DB",
         "Weekly cadence smooths day-to-day noise while preserving medium-term shifts",
