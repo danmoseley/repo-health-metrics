@@ -66,7 +66,9 @@ This repo is owned by `danmoseley`. If `gh` commands return 403, run
 - Keep PR scope tight: when adding/modifying one chart, avoid unrelated chart or
   file churn. If extra files appear, clean up before requesting review.
 - Regenerate and commit required artifacts for the changed chart(s), including
-  `charts/chart_index.tsv` when titles/charts are added or changed.
+  all changed `charts/*.png` outputs and `charts/chart_index.tsv` when
+  titles/charts are added or changed. Special case: when adding a new chart,
+  include the new PNG + index entry in the same PR (not only script changes).
 - If reviewer feedback reveals a recurring graph/report mistake that is now fixed,
   update this file in the same PR so future agents inherit the guidance.
 
