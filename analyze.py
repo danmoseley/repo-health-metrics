@@ -938,30 +938,24 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
                "PRs Merged / Week (28-day rolling sum, ÷4)")
 
     today = datetime.now().date()
-    # Cap to the latest available merged date so stale local snapshots don't add
-    # trailing zero-days that create an artificial final dip.
-    latest_merged_day = None
-    for items in all_items.values():
-        for it in items:
-            if not it.get("is_pr"):
-                continue
-            md = parse_date(it.get("merged_at"))
-            if md and (latest_merged_day is None or md > latest_merged_day):
-                latest_merged_day = md
-    if latest_merged_day is None:
-        plt.close(fig)
-        return
-
-    last_day = min(today - timedelta(days=1), latest_merged_day)
-    cutoff = last_day - timedelta(days=364)
-    # Need 27 days of pre-window history so the first plotted point has a full 28-day window
-    fetch_start = cutoff - timedelta(days=27)
 
     visible_data = []
     line_ends = []
     for repo, items in all_items.items():
         if not items or repo in GERRIT_REPOS:
             continue
+        latest_merged_day = max(
+            (parse_date(it.get("merged_at"))
+             for it in items
+             if it.get("is_pr") and it.get("merged_at")),
+            default=None,
+        )
+        if latest_merged_day is None:
+            continue
+        last_day = min(today - timedelta(days=1), latest_merged_day)
+        cutoff = last_day - timedelta(days=364)
+        # Need 27 days of pre-window history so the first plotted point has a full 28-day window
+        fetch_start = cutoff - timedelta(days=27)
         # Daily merged counts within the (extended) window
         daily = defaultdict(int)
         for it in items:
@@ -1011,6 +1005,7 @@ def chart_pr_merge_rate_12m(all_items, output_dir):
         "12-month view of PR merge rate — weekly points, each = 28-day trailing avg (÷4)",
         "Bridges the long-term trend chart and the 4-month daily detail chart",
         "Each point = average PRs merged per week over the preceding 4 weeks",
+        "Each line ends at that repo's latest merged date in the DB",
         "Weekly cadence smooths day-to-day noise while preserving medium-term shifts",
     ])
     _pad_date_xlim(fig)
