@@ -285,6 +285,12 @@ def compute_weekly_series(items, end_date=None):
 
     first_week = min(all_dates)
     last_week = week_start(end_date)
+    # Cap at the latest week actually present in the data.  When the database
+    # hasn't been refreshed recently, extending to end_date appends trailing
+    # all-zero weeks that create an artificial dip in rolling-average charts.
+    latest_data_week = max(all_dates)
+    if latest_data_week < last_week:
+        last_week = latest_data_week
     weeks = []
     w = first_week
     while w <= last_week:
@@ -1178,9 +1184,24 @@ def chart_open_pr_age(all_items, output_dir):
             continue
         prs.sort(key=lambda x: x[0])
 
-        # Monthly snapshots
+        # Monthly snapshots: cap at the latest date actually in the data so
+        # months after the DB cutoff don't show artificially inflated ages
+        # (stale DB is missing recent merges, so closed PRs look still-open).
+        latest_event = max(
+            (d for d in (cd for cd, _ in prs) if d is not None),
+            default=None,
+        )
+        latest_close = max(
+            (cl for _, cl in prs if cl is not None),
+            default=None,
+        )
+        if latest_close and (latest_event is None or latest_close > latest_event):
+            latest_event = latest_close
         first_month = prs[0][0].replace(day=1)
-        last_month = datetime.now().date().replace(day=1)
+        last_month = min(
+            datetime.now().date().replace(day=1),
+            latest_event.replace(day=1) if latest_event else datetime.now().date().replace(day=1),
+        )
         months = []
         medians = []
         m = first_month

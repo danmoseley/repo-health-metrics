@@ -1,18 +1,24 @@
 hash	title
 02417a5	Community Issue Turnaround (% Closed Within 30 Days, 6-month avg)
 0682c7a	Copilot PRs by Type — dotnet repos aggregated (4-week avg)
+14a9037	% of PRs Receiving CHANGES_REQUESTED (4-week rolling)
 1b1f105	PR Merge Rate (Merged per Week, 52-week rolling avg)
 1e9930e	First Human Comment to Merge — P50 (weekly, 4-week rolling)
 21eb4ea	Community Issue Time-to-Close — 75th Percentile (12-month avg)
 231be83	Issues Opened by Community (6-month avg)
+262917a	Human 'Rubber Stamp' Rate on Copilot-Reviewed PRs (4-week rolling)
+28e48cd	Defect Rate: Copilot-Only vs Human+Copilot Review
 2e1f86c	Time to First Review Feedback — Copilot vs Human (P50 hours, 4-week rolling)
 3276189	Active Community Contributors (Distinct PR Authors, 2-Month Window)
+3ab0895	Review Thread Depth: Copilot vs Human-Initiated
 3ebe067	Distinct Community Issue Openers (2-Month Window, 6-month avg)
 3ecf41f	Time to Merge PRs — 75th Percentile (18-month avg)
 3ffef8d	Community vs Maintainer Merge Speed (ratio, lower = more equal)
+400a644	Time to Human Approval (P50 hours, 4-week rolling)
 4774cbc	Copilot PRs by Type (4-week avg)
 4d62f93	CI-Triggering Pushes per PR — weekly means with linear trend
 4e60af1	Human Review Comments — Copilot-Reviewed vs Not (4-week rolling mean)
+59cf651	Suggestion Response Time: Copilot vs Human
 5f4030a	Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)
 60ef5ce	Code Changes Completed Before Human Review (4-week rolling P50)
 613d0f6	Median Age of Open PRs (Monthly Snapshot, 6-month avg)
@@ -45,7 +51,10 @@ d291c2f	Copilot Review Comments per 100 Lines Changed (4-week rolling mean)
 d797abb	Open PRs (6-month avg)
 daea0f2	Human Reviewers per PR (4-week rolling mean)
 dd0bcb3	Community PR Merge Latency (median days, 6-month rolling)
+e18c1c1	Revert / Fix-Recent Rate (4-week rolling, per 100 merged PRs)
+e7d439e	Change Attribution: Who Drives Post-Review Work?
 e98fb5a	Open PRs per Active Maintainer (3-month rolling avg)
 eb7bb95	PR Merge Rate: Copilot vs Human — dotnet/runtime (Monthly)
 effafa6	Community PR Concentration Over Time (Gini Coefficient, 6-month windows)
+f55a19d	First Review Response Time (P50 hours)
 fc23ee6	Community Share of Issues (6-month avg)
