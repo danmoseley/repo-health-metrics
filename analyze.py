@@ -4197,6 +4197,7 @@ def chart_review_copilot_comment_density(all_items, review_data, output_dir):
 
     visible_data = []
     line_ends = []
+    combined_density_by_week = defaultdict(list)
     active_repos = _repos_with_copilot_activity(all_items, review_data)
     for repo in active_repos:
         items = all_items.get(repo)
@@ -4221,7 +4222,10 @@ def chart_review_copilot_comment_density(all_items, review_data, output_dir):
                 continue  # skip trivial PRs
             cd = parse_date(item["created_at"])
             if cd and cd >= cutoff:
-                density_by_week[week_start(cd)].append(len(copilot_comments) * 100.0 / loc)
+                density = len(copilot_comments) * 100.0 / loc
+                wk = week_start(cd)
+                density_by_week[wk].append(density)
+                combined_density_by_week[wk].append(density)
 
         if not density_by_week:
             continue
@@ -4247,6 +4251,28 @@ def chart_review_copilot_comment_density(all_items, review_data, output_dir):
         plt.close(fig)
         print("  (skipping copilot comment density — no data)")
         return
+
+    # Combined linear regression across all repos
+    import numpy as np
+    combined_x, combined_y = [], []
+    w = min(combined_density_by_week.keys()) if combined_density_by_week else cutoff
+    w = week_start(w)
+    while w <= last_complete_week:
+        window_vals = []
+        for k in range(4):
+            window_vals.extend(combined_density_by_week.get(w - timedelta(weeks=k), []))
+        if len(window_vals) >= 5:
+            combined_x.append(w)
+            combined_y.append(sum(window_vals) / len(window_vals))
+        w += timedelta(weeks=1)
+    if len(combined_x) >= 2:
+        x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
+        y_arr = np.array(combined_y, dtype=float)
+        coeffs = np.polyfit(x_numeric, y_arr, 1)
+        trend_y = np.polyval(coeffs, x_numeric)
+        ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
+                alpha=0.7, label="Combined trend")
+
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
@@ -4363,6 +4389,8 @@ def chart_review_suggestion_rate(all_items, review_data, output_dir):
 
     visible_data = []
     line_ends = []
+    combined_total_by_week = defaultdict(int)
+    combined_sugg_by_week = defaultdict(int)
     active_repos = _repos_with_copilot_activity(all_items, review_data)
     for repo in active_repos:
         items = all_items.get(repo)
@@ -4384,8 +4412,10 @@ def chart_review_suggestion_rate(all_items, review_data, output_dir):
             for c in comments_by_pr.get(num, []):
                 if _is_copilot_reviewer(c["author"]):
                     by_week_total[wk] += 1
+                    combined_total_by_week[wk] += 1
                     if c["body_has_suggestion"]:
                         by_week_sugg[wk] += 1
+                        combined_sugg_by_week[wk] += 1
 
         if not by_week_total:
             continue
@@ -4410,6 +4440,27 @@ def chart_review_suggestion_rate(all_items, review_data, output_dir):
         plt.close(fig)
         print("  (skipping suggestion rate — no data)")
         return
+
+    # Combined linear regression across all repos
+    import numpy as np
+    combined_x, combined_y = [], []
+    w = min(combined_total_by_week.keys()) if combined_total_by_week else cutoff
+    w = week_start(w)
+    while w <= last_complete_week:
+        total = sum(combined_total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+        sugg = sum(combined_sugg_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+        if total >= 5:
+            combined_x.append(w)
+            combined_y.append(100.0 * sugg / total)
+        w += timedelta(weeks=1)
+    if len(combined_x) >= 2:
+        x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
+        y_arr = np.array(combined_y, dtype=float)
+        coeffs = np.polyfit(x_numeric, y_arr, 1)
+        trend_y = np.polyval(coeffs, x_numeric)
+        ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
+                alpha=0.7, label="Combined trend")
+
     ax.set_ylim(0, 100)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
@@ -4545,6 +4596,7 @@ def chart_review_copilot_to_human_approval(all_items, review_data, output_dir):
 
     visible_data = []
     line_ends = []
+    combined_hours_by_week = defaultdict(list)
     active_repos = _repos_with_copilot_activity(all_items, review_data)
     for repo in active_repos:
         items = all_items.get(repo)
@@ -4580,7 +4632,9 @@ def chart_review_copilot_to_human_approval(all_items, review_data, output_dir):
                 app_dt = datetime.fromisoformat(first_approval.replace("Z", "+00:00"))
                 hours = (app_dt - cop_dt).total_seconds() / 3600
                 if 0 < hours < 168:  # 0-7 days
-                    hours_by_week[week_start(cd)].append(hours)
+                    wk = week_start(cd)
+                    hours_by_week[wk].append(hours)
+                    combined_hours_by_week[wk].append(hours)
             except (ValueError, AttributeError):
                 continue
 
@@ -4608,6 +4662,28 @@ def chart_review_copilot_to_human_approval(all_items, review_data, output_dir):
         plt.close(fig)
         print("  (skipping copilot-to-approval — no data)")
         return
+
+    # Combined linear regression across all repos
+    import numpy as np
+    combined_x, combined_y = [], []
+    w = min(combined_hours_by_week.keys()) if combined_hours_by_week else cutoff
+    w = week_start(w)
+    while w <= last_complete_week:
+        window_vals = []
+        for k in range(4):
+            window_vals.extend(combined_hours_by_week.get(w - timedelta(weeks=k), []))
+        if len(window_vals) >= 3:
+            combined_x.append(w)
+            combined_y.append(median(window_vals))
+        w += timedelta(weeks=1)
+    if len(combined_x) >= 2:
+        x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
+        y_arr = np.array(combined_y, dtype=float)
+        coeffs = np.polyfit(x_numeric, y_arr, 1)
+        trend_y = np.polyval(coeffs, x_numeric)
+        ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
+                alpha=0.7, label="Combined trend")
+
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
@@ -4756,6 +4832,8 @@ def chart_review_copilot_coverage(all_items, review_data, output_dir):
 
     visible_data = []
     line_ends = []
+    combined_total_by_week = defaultdict(int)
+    combined_copilot_by_week = defaultdict(int)
     for repo in REVIEW_CHART_REPOS:
         items = all_items.get(repo)
         rd = review_data.get(repo)
@@ -4774,9 +4852,11 @@ def chart_review_copilot_coverage(all_items, review_data, output_dir):
                 continue
             wk = week_start(cd)
             total_by_week[wk] += 1
+            combined_total_by_week[wk] += 1
             reviews = reviews_by_pr.get(num, [])
             if any(_is_copilot_reviewer(r["author"]) for r in reviews):
                 copilot_by_week[wk] += 1
+                combined_copilot_by_week[wk] += 1
 
         if not total_by_week:
             continue
@@ -4801,6 +4881,27 @@ def chart_review_copilot_coverage(all_items, review_data, output_dir):
         plt.close(fig)
         print("  (skipping copilot coverage — no data)")
         return
+
+    # Combined linear regression across all repos
+    import numpy as np
+    combined_x, combined_y = [], []
+    w = min(combined_total_by_week.keys()) if combined_total_by_week else cutoff
+    w = week_start(w)
+    while w <= last_complete_week:
+        total = sum(combined_total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+        cop = sum(combined_copilot_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+        if total >= 5:
+            combined_x.append(w)
+            combined_y.append(100.0 * cop / total)
+        w += timedelta(weeks=1)
+    if len(combined_x) >= 2:
+        x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
+        y_arr = np.array(combined_y, dtype=float)
+        coeffs = np.polyfit(x_numeric, y_arr, 1)
+        trend_y = np.polyval(coeffs, x_numeric)
+        ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
+                alpha=0.7, label="Combined trend")
+
     ax.set_ylim(0, 100)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
