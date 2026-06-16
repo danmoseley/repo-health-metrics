@@ -4801,6 +4801,7 @@ def chart_review_human_participation(all_items, review_data, output_dir):
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
