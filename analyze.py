@@ -4836,6 +4836,7 @@ def chart_review_rubber_stamp_rate(all_items, review_data, output_dir):
 
     visible_data = []
     line_ends = []
+    combined_stamp_by_week = defaultdict(lambda: [0, 0])  # week -> [stamp_count, total_count]
     active_repos = _repos_with_copilot_activity(all_items, review_data)
     for repo in active_repos:
         items = all_items.get(repo)
@@ -4877,8 +4878,10 @@ def chart_review_rubber_stamp_rate(all_items, review_data, output_dir):
                         and any(r["state"] == "APPROVED" for r in human_reviews))
             wk = week_start(cd)
             stamp_by_week[wk][1] += 1
+            combined_stamp_by_week[wk][1] += 1
             if is_stamp:
                 stamp_by_week[wk][0] += 1
+                combined_stamp_by_week[wk][0] += 1
 
         if not stamp_by_week:
             continue
@@ -4907,6 +4910,31 @@ def chart_review_rubber_stamp_rate(all_items, review_data, output_dir):
         plt.close(fig)
         print("  (skipping rubber stamp rate — no data)")
         return
+
+    # Combined linear regression across all repos
+    import numpy as np
+    combined_x, combined_y = [], []
+    w = min(combined_stamp_by_week.keys()) if combined_stamp_by_week else cutoff
+    w = week_start(w)
+    while w <= last_complete_week:
+        window_stamps = 0
+        window_total = 0
+        for k in range(4):
+            s, t = combined_stamp_by_week.get(w - timedelta(weeks=k), (0, 0))
+            window_stamps += s
+            window_total += t
+        if window_total >= 5:
+            combined_x.append(w)
+            combined_y.append(100.0 * window_stamps / window_total)
+        w += timedelta(weeks=1)
+    if len(combined_x) >= 2:
+        x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
+        y_arr = np.array(combined_y, dtype=float)
+        coeffs = np.polyfit(x_numeric, y_arr, 1)
+        trend_y = np.polyval(coeffs, x_numeric)
+        ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
+                alpha=0.7, label="Combined trend")
+
     ax.set_ylim(0, 100)
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
