@@ -40,7 +40,7 @@ REPOS = [
 ]
 
 DEFAULT_DB = "pr-dashboard.db"
-REQUEST_DELAY = 0.5  # seconds between requests (conservative; ~7200 req/hr headroom)
+REQUEST_DELAY = 0.1  # seconds between requests (~36k req/hr theoretical max; still bounded by API limits/retries)
 
 # Graceful shutdown flag
 _shutdown_requested = False
