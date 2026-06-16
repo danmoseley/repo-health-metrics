@@ -279,15 +279,21 @@ def main():
     with gzip.open(csv_path, "rt", newline="") as f:
         reader = csv.reader(f)
         header = next(reader)  # skip header
-        has_merged_by_checked = "merged_by_checked" in header
+        header_index = {name: i for i, name in enumerate(header)}
+        has_merged_by_checked = "merged_by_checked" in header_index
         batch = []
         for row in reader:
             row = nullify(row)
-            while len(row) < len(ITEMS_COLUMNS):
-                row.append(None)
-            if row[10] is None:  # merged_by_checked
-                row[10] = 0
-            batch.append(row[:len(ITEMS_COLUMNS)])
+            values = []
+            for column in ITEMS_COLUMNS:
+                idx = header_index.get(column)
+                values.append(row[idx] if idx is not None and idx < len(row) else None)
+            if not has_merged_by_checked:
+                merged_by = values[9]
+                values[10] = 1 if merged_by else 0
+            elif values[10] is None:
+                values[10] = 0
+            batch.append(values)
             if len(batch) >= 10000:
                 conn.executemany(insert_sql, batch)
                 count += len(batch)
