@@ -20,7 +20,7 @@ Usage:
 import sqlite3
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 
