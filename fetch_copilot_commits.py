@@ -128,7 +128,7 @@ def main():
             (repo, cutoff)
         ).fetchall()
         pr_numbers = [r[0] for r in prs]
-        if args.limit:
+        if args.limit is not None:
             pr_numbers = pr_numbers[:args.limit]
 
         total = len(pr_numbers)

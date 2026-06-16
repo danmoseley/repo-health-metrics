@@ -561,7 +561,7 @@ def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None):
     ).fetchall()
 
     pr_numbers = [r[0] for r in prs]
-    if limit:
+    if limit is not None:
         pr_numbers = pr_numbers[:limit]
     total = len(pr_numbers)
     if total == 0:

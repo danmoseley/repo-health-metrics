@@ -84,6 +84,21 @@ def graphql_request(session, token, query, variables):
     return resp
 
 
+def ensure_schema(conn):
+    """Ensure merged_by_checked exists for older DBs and normalize legacy sentinel rows."""
+    try:
+        conn.execute("ALTER TABLE items ADD COLUMN merged_by_checked INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("UPDATE items SET merged_by = NULL, merged_by_checked = 1 WHERE merged_by = ''")
+    conn.execute(
+        "UPDATE items SET merged_by_checked = CASE "
+        "WHEN merged_by IS NOT NULL THEN 1 "
+        "ELSE COALESCE(merged_by_checked, 0) END"
+    )
+    conn.commit()
+
+
 def fetch_merged_by(conn, session, token, repo):
     """Fetch merged_by only for PRs that are still missing it."""
     owner, name = repo.split("/")
@@ -264,6 +279,7 @@ def main():
 
     token = get_token()
     conn = sqlite3.connect(args.db)
+    ensure_schema(conn)
     session = requests.Session()
 
     if args.repos:
