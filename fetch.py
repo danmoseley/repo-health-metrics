@@ -100,6 +100,7 @@ def init_db(db_path):
             labels TEXT,
             author TEXT,
             merged_by TEXT,
+            merged_by_checked INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (repo, number)
         );
 
@@ -119,11 +120,17 @@ def init_db(db_path):
         CREATE INDEX IF NOT EXISTS idx_items_created ON items(repo, created_at);
     """)
     # Migration: add columns if they don't exist (for DBs created before this change)
-    for col in ("author", "merged_by"):
+    for col in ("author", "merged_by", "merged_by_checked"):
         try:
-            conn.execute(f"ALTER TABLE items ADD COLUMN {col} TEXT")
+            col_type = "INTEGER NOT NULL DEFAULT 0" if col == "merged_by_checked" else "TEXT"
+            conn.execute(f"ALTER TABLE items ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
             pass  # column already exists
+    conn.execute(
+        "UPDATE items SET merged_by_checked = CASE "
+        "WHEN merged_by IS NOT NULL AND merged_by != '' THEN 1 "
+        "ELSE COALESCE(merged_by_checked, 0) END"
+    )
     # Migration: add sync_started_at to fetch_progress
     try:
         conn.execute("ALTER TABLE fetch_progress ADD COLUMN sync_started_at TEXT")
@@ -192,7 +199,6 @@ def fetch_page(session, url, params, max_retries=5):
         ticker = threading.Thread(target=heartbeat, daemon=True)
         ticker.start()
         try:
-            print(f"  GET {target}{suffix}...", flush=True)
             resp = session.get(url, params=params, timeout=30)
         except req.exceptions.RequestException as e:
             stop_heartbeat.set()
@@ -395,8 +401,8 @@ def save_checkpoint(conn, repo, item_type, page, items_fetched, status,
 UPSERT_SQL = (
     "INSERT INTO items "
     "(repo, number, created_at, closed_at, state, is_pull_request, "
-    "merged_at, labels, author, merged_by) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+    "merged_at, labels, author, merged_by, merged_by_checked) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
     "ON CONFLICT(repo, number) DO UPDATE SET "
     # Prefer existing created_at — avoids NULL overwrites from partial API responses
     "  created_at      = COALESCE(items.created_at, excluded.created_at), "
@@ -409,7 +415,11 @@ UPSERT_SQL = (
     # Prefer existing author — set once, may have been enriched by fetch_issue_authors.py
     "  author          = COALESCE(items.author, excluded.author), "
     # Prefer new merged_by — may arrive later from hydration or fetch_mergers.py
-    "  merged_by       = COALESCE(excluded.merged_by, items.merged_by)"
+    "  merged_by       = COALESCE(excluded.merged_by, items.merged_by), "
+    "  merged_by_checked = CASE "
+    "    WHEN excluded.merged_by IS NOT NULL THEN 1 "
+    "    ELSE items.merged_by_checked "
+    "  END"
 )
 
 
@@ -435,6 +445,7 @@ def parse_item(repo, item, is_pr):
         labels,
         author,
         merged_by_login,
+        1 if merged_by_login else 0,
     )
 
 
@@ -596,7 +607,7 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
     individually to populate the field.
 
     PRs where GitHub genuinely has no merged_by (e.g., very old PRs) are
-    marked with merged_by='' so future --hydrate runs skip them.
+    marked with merged_by_checked=1 so future --hydrate runs skip them.
 
     Returns the number of PRs hydrated, 0 if there is nothing to hydrate,
     or None if hydration stops early due to interruption or too many
@@ -606,17 +617,17 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
         start_time = time.time()
     owner, name = repo.split("/")
 
-    # Skip PRs previously checked where GitHub has no merged_by (marked as '')
+    # Skip PRs previously checked where GitHub has no merged_by.
     rows = conn.execute(
         "SELECT number FROM items "
         "WHERE repo = ? AND is_pull_request = 1 AND merged_at IS NOT NULL "
-        "AND merged_by IS NULL ORDER BY number",
+        "AND merged_by_checked = 0 ORDER BY number",
         (repo,)
     ).fetchall()
 
     total = len(rows)
     if total == 0:
-        print(f"  No merged PRs with NULL merged_by — nothing to hydrate")
+        print(f"  No merged PRs still needing merged_by — nothing to hydrate")
         return 0
 
     print(f"  {total:,} merged PRs need merged_by hydration")
@@ -655,16 +666,13 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
                     continue
                 raise
 
-        # If GitHub truly has no merged_by, mark as '' so future --hydrate
-        # runs skip this PR instead of re-fetching it every time.
-        # Note: '' is used as a "checked, no value" sentinel. fetch_mergers.py
-        # also skips rows where merged_by = '', so once marked, these PRs won't
-        # be re-checked unless the sentinel is manually cleared.
+        # If GitHub truly has no merged_by, mark the row as checked so future
+        # hydrate runs skip it instead of re-fetching it every time.
         if merged_by_val is None:
             for _attempt in range(5):
                 try:
                     conn.execute(
-                        "UPDATE items SET merged_by = '' "
+                        "UPDATE items SET merged_by_checked = 1 "
                         "WHERE repo = ? AND number = ? AND merged_by IS NULL",
                         (repo, number)
                     )

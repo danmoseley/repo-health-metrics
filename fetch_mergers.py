@@ -91,14 +91,14 @@ def fetch_merged_by(conn, session, token, repo):
     missing_numbers = [
         row[0] for row in conn.execute(
             "SELECT number FROM items WHERE repo=? AND is_pull_request=1 "
-            "AND merged_at IS NOT NULL AND merged_at != '' AND merged_by IS NULL "
+            "AND merged_at IS NOT NULL AND merged_at != '' AND merged_by_checked = 0 "
             "ORDER BY number ASC",
             (repo,),
         ).fetchall()
     ]
     need = len(missing_numbers)
     if need == 0:
-        print(f"  {repo}: no merged PRs with NULL merged_by (sentinel-empty rows are skipped)")
+        print(f"  {repo}: no merged PRs still needing merged_by")
         return
 
     total_merged = conn.execute(
@@ -139,7 +139,12 @@ def fetch_merged_by(conn, session, token, repo):
             if resp.status_code != 200:
                 body = resp.text[:300]
                 if resp.status_code == 403 or "rate limit" in body.lower():
-                    rl = resp.json().get("data", {}).get("rateLimit", {})
+                    payload = {}
+                    try:
+                        payload = resp.json()
+                    except Exception:
+                        pass
+                    rl = (payload.get("data") or {}).get("rateLimit", {})
                     reset_at = rl.get("resetAt", "unknown")
                     print(f"    Rate limited, resets at {reset_at}")
                     # Parse reset time and sleep
@@ -159,7 +164,7 @@ def fetch_merged_by(conn, session, token, repo):
             if "errors" in data:
                 err_text = str(data["errors"]).lower()
                 if "rate limit" in err_text or "throttle" in err_text:
-                    rl = data.get("data", {}).get("rateLimit", {})
+                    rl = (data.get("data") or {}).get("rateLimit", {})
                     reset_at = rl.get("resetAt", "unknown")
                     print(f"    GraphQL rate-limited, resets at {reset_at}")
                     try:
@@ -174,18 +179,21 @@ def fetch_merged_by(conn, session, token, repo):
                 failed_chunks += 1
                 break
 
-            repo_data = data["data"]["repository"]
+            payload = data.get("data") or {}
+            repo_data = payload.get("repository")
             if not repo_data:
                 print("    GraphQL returned no repository data")
                 failed_chunks += 1
                 break
-            rl = data["data"]["rateLimit"]
+            rl = payload.get("rateLimit", {})
 
-            batch = []
+            checked_batch = []
+            merged_batch = []
             for i in range(len(chunk)):
                 node = repo_data.get(f"pr{i}")
                 if not node:
                     continue
+                checked_batch.append((1, repo, node["number"]))
                 merged_by = None
                 if node.get("mergedBy"):
                     merged_by = node["mergedBy"].get("login")
@@ -193,36 +201,45 @@ def fetch_merged_by(conn, session, token, repo):
                 if node.get("author"):
                     author = node["author"].get("login")
                 if merged_by:
-                    batch.append((merged_by, author, repo, node["number"]))
+                    merged_batch.append((merged_by, author, repo, node["number"]))
 
-            if batch:
+            if checked_batch:
                 conn.executemany(
-                    "UPDATE items SET merged_by=?, author=COALESCE(author, ?) "
+                    "UPDATE items SET merged_by_checked=? "
                     "WHERE repo=? AND number=?",
-                    batch
+                    checked_batch
                 )
-                updated += len(batch)
+            if merged_batch:
+                conn.executemany(
+                    "UPDATE items SET merged_by=COALESCE(?, merged_by), "
+                    "author=COALESCE(author, ?) "
+                    "WHERE repo=? AND number=?",
+                    merged_batch
+                )
+                updated += len(merged_batch)
 
             chunks_done += 1
             if chunks_done % 25 == 0 or chunks_done == total_chunks:
                 conn.commit()
                 ts = datetime.now().strftime("%H:%M:%S")
                 checked = min(idx + len(chunk), need)
+                rl_remaining = rl.get("remaining", "?")
                 print(
                     f"    [{ts}] chunk {chunks_done}/{total_chunks}: "
-                    f"{checked:,}/{need:,} checked, {updated:,} updated "
-                    f"(RL: {rl['remaining']})"
+                    f"{checked:,}/{need:,} checked, {updated:,} with merged_by "
+                    f"(RL: {rl_remaining})"
                 )
 
             # Proactive rate limit check
-            if int(rl["remaining"]) < 50:
-                reset_at = rl["resetAt"]
+            rl_remaining = rl.get("remaining", 0)
+            if int(rl_remaining) < 50:
+                reset_at = rl.get("resetAt", "unknown")
                 try:
                     reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
                     wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
                 except:
                     wait = 600
-                print(f"    Rate limit low ({rl['remaining']}), sleeping {wait:.0f}s...")
+                print(f"    Rate limit low ({rl_remaining}), sleeping {wait:.0f}s...")
                 time.sleep(wait)
 
             time.sleep(REQUEST_DELAY)
@@ -230,7 +247,7 @@ def fetch_merged_by(conn, session, token, repo):
 
     conn.commit()
     print(
-        f"  {repo}: updated {updated:,} PRs with merged_by"
+        f"  {repo}: set merged_by on {updated:,} PRs"
         + (f", failed chunks: {failed_chunks}" if failed_chunks else "")
     )
 

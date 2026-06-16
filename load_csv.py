@@ -223,6 +223,7 @@ def main():
             labels TEXT,
             author TEXT,
             merged_by TEXT,
+            merged_by_checked INTEGER NOT NULL DEFAULT 0,
             copilot_requester TEXT,
             copilot_trailer INTEGER,
             title TEXT,
@@ -248,8 +249,8 @@ def main():
     # Column list must match the CREATE TABLE above — update both together
     ITEMS_COLUMNS = [
         "repo", "number", "created_at", "closed_at", "state", "is_pull_request",
-        "merged_at", "labels", "author", "merged_by", "copilot_requester", "copilot_trailer",
-        "title",
+        "merged_at", "labels", "author", "merged_by", "merged_by_checked",
+        "copilot_requester", "copilot_trailer", "title",
     ]
     col_list = ",".join(ITEMS_COLUMNS)
     placeholders = ",".join("?" * len(ITEMS_COLUMNS))
@@ -259,7 +260,8 @@ def main():
     count = 0
     with gzip.open(csv_path, "rt", newline="") as f:
         reader = csv.reader(f)
-        next(reader)  # skip header
+        header = next(reader)  # skip header
+        has_merged_by_checked = "merged_by_checked" in header
         batch = []
         for row in reader:
             row = nullify(row)
@@ -277,6 +279,14 @@ def main():
             count += len(batch)
 
     conn.commit()
+
+    if not has_merged_by_checked:
+        conn.execute(
+            "UPDATE items SET merged_by_checked = CASE "
+            "WHEN merged_by IS NOT NULL AND merged_by != '' THEN 1 "
+            "ELSE 0 END"
+        )
+        conn.commit()
 
     # ─── Auxiliary tables (preserved data: comments, pushes, etc.) ───
     load_aux_tables(conn)
