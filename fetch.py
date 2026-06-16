@@ -23,6 +23,7 @@ import sys
 import signal
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Schema version — bump when DB schema changes in incompatible ways.
 # --update refuses to run against a different version; use --reset to rebuild.
@@ -172,6 +173,17 @@ def fetch_page(session, url, params, max_retries=5):
             return None
 
         try:
+            parsed = urlparse(url)
+            target = parsed.path.rsplit("/", 1)[-1]
+            page = params.get("page")
+            since = params.get("since")
+            detail = []
+            if page:
+                detail.append(f"page={page}")
+            if since:
+                detail.append(f"since={since}")
+            suffix = f" ({', '.join(detail)})" if detail else ""
+            print(f"  GET {target}{suffix}...", flush=True)
             resp = session.get(url, params=params, timeout=30)
         except req.exceptions.RequestException as e:
             wait = min(4 ** attempt, 120)
@@ -466,6 +478,7 @@ def update_repo(conn, session, repo, request_delay):
     prs_to_hydrate = set()
 
     while not _shutdown_requested:
+        print(f"  [{repo}] fetching issue/PR updates page {page + 1}...", flush=True)
         resp = fetch_page(session, next_url, next_params)
         if resp is None:
             return None
@@ -537,6 +550,8 @@ def update_repo(conn, session, repo, request_delay):
                 return None
 
             pr_url = f"https://api.github.com/repos/{owner}/{name}/pulls/{number}"
+            if i == 0 or (i + 1) % 25 == 0:
+                print(f"  [{repo}] hydrating PR {i + 1}/{len(prs_to_hydrate)}...", flush=True)
             resp = fetch_page(session, pr_url, {})
             if resp is None:
                 print(f"  WARNING: Failed to hydrate PR #{number}, skipping")
@@ -850,6 +865,7 @@ def main():
             print(f"\n{'='*60}")
             print(f"[{i+1}/{len(repos)}] {repo} (update)")
             print(f"{'='*60}")
+            print(f"  Starting incremental update for {repo}", flush=True)
 
             result = update_repo(conn, session, repo, args.delay)
             if result is None:
@@ -882,6 +898,7 @@ def main():
             print(f"\n{'='*60}")
             print(f"[{i+1}/{len(repos)}] {repo}")
             print(f"{'='*60}")
+            print(f"  Starting full fetch for {repo}", flush=True)
 
             print(f"\n  --- Pull Requests ---")
             pr_count = fetch_items(conn, session, repo, "pr", args.delay)
