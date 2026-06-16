@@ -25,9 +25,10 @@ env:
   REVIEW_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
 
 jobs:
-  refresh:
+  # Carry the SQLite DB between stages so no single job hits the 5-hour limit.
+  prepare-db:
     runs-on: ubuntu-latest
-    timeout-minutes: 300  # 5 hours max
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -42,17 +43,122 @@ jobs:
       - name: Restore DB from CSVs
         run: python load_csv.py --force
 
+      - name: Checkpoint DB
+        run: |
+          python -c "import sqlite3, sys; c=sqlite3.connect('pr-dashboard.db'); row=c.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone(); c.close(); print(f'Checkpoint result: {row}'); sys.exit(1 if not row or row[0] != 0 else 0)"
+
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: pr-dashboard.db
+          overwrite: true
+
+  fetch-items:
+    runs-on: ubuntu-latest
+    needs: prepare-db
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download DB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: db-artifact
+
+      - name: Restore DB artifact
+        run: mv db-artifact/pr-dashboard.db pr-dashboard.db
+
       - name: Fetch items (incremental)
         run: python fetch.py --update --repos ${{ env.REPOS }}
 
       - name: Fetch merged_by
         run: python fetch_mergers.py --repos ${{ env.REPOS }}
 
+      - name: Checkpoint DB
+        run: |
+          python -c "import sqlite3, sys; c=sqlite3.connect('pr-dashboard.db'); row=c.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone(); c.close(); print(f'Checkpoint result: {row}'); sys.exit(1 if not row or row[0] != 0 else 0)"
+
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: pr-dashboard.db
+          overwrite: true
+
+  fetch-engagement:
+    runs-on: ubuntu-latest
+    needs: fetch-items
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download DB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: db-artifact
+
+      - name: Restore DB artifact
+        run: mv db-artifact/pr-dashboard.db pr-dashboard.db
+
       - name: Fetch first comments
         run: python fetch_comments.py
 
       - name: Fetch PR push events
         run: python fetch_pr_pushes.py --repos ${{ env.PUSH_REPOS }}
+
+      - name: Checkpoint DB
+        run: |
+          python -c "import sqlite3, sys; c=sqlite3.connect('pr-dashboard.db'); row=c.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone(); c.close(); print(f'Checkpoint result: {row}'); sys.exit(1 if not row or row[0] != 0 else 0)"
+
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: pr-dashboard.db
+          overwrite: true
+
+  fetch-copilot-metadata:
+    runs-on: ubuntu-latest
+    needs: fetch-engagement
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download DB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: db-artifact
+
+      - name: Restore DB artifact
+        run: mv db-artifact/pr-dashboard.db pr-dashboard.db
 
       - name: Fetch Copilot commit trailers
         run: python fetch_copilot_commits.py --repos ${{ env.REPOS }}
@@ -79,6 +185,41 @@ jobs:
           else
             echo "Only $MISSING items missing authors — skipping backfill"
           fi
+
+      - name: Checkpoint DB
+        run: |
+          python -c "import sqlite3, sys; c=sqlite3.connect('pr-dashboard.db'); row=c.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone(); c.close(); print(f'Checkpoint result: {row}'); sys.exit(1 if not row or row[0] != 0 else 0)"
+
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: pr-dashboard.db
+          overwrite: true
+
+  refresh:
+    runs-on: ubuntu-latest
+    needs: fetch-copilot-metadata
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download DB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: weekly-refresh-db
+          path: db-artifact
+
+      - name: Restore DB artifact
+        run: mv db-artifact/pr-dashboard.db pr-dashboard.db
 
       - name: Backup DB to CSVs
         run: python backup_csvs.py
@@ -125,7 +266,12 @@ jobs:
 
   notify-failure:
     runs-on: ubuntu-latest
-    needs: refresh
+    needs:
+      - prepare-db
+      - fetch-items
+      - fetch-engagement
+      - fetch-copilot-metadata
+      - refresh
     if: failure()
     permissions:
       issues: write
