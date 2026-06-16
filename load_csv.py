@@ -267,6 +267,8 @@ def main():
             row = nullify(row)
             while len(row) < len(ITEMS_COLUMNS):
                 row.append(None)
+            if row[10] is None:  # merged_by_checked
+                row[10] = 0
             batch.append(row[:len(ITEMS_COLUMNS)])
             if len(batch) >= 10000:
                 conn.executemany(insert_sql, batch)
