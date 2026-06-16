@@ -104,7 +104,8 @@ This repo is owned by `danmoseley`. If `gh` commands return 403, run
 - The weekly-refresh workflow runs Monday 03:17 UTC.
 - It restores DB → fetches → backs up → generates charts → creates a PR.
 - The workflow uses `GITHUB_TOKEN` (1,000 req/hour for public repos).
-- The weekly refresh is meant to be incremental; a healthy run should only
-  query the recent window (roughly 4-6 weeks). If it starts re-querying years
-  of history, the sync watermark/progress tracking has broken and should be
-  fixed rather than retried unchanged.
+- The weekly refresh is meant to be incremental. The per-run cap should stay
+  ahead of the weekly schedule so the watermark advances faster than the
+  cadence; if it starts re-querying years of history, the sync
+  watermark/progress tracking has broken and should be fixed rather than
+  retried unchanged.

@@ -17,7 +17,8 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   PYTHONUNBUFFERED: "1"
-  UPDATE_WINDOW_DAYS: "1"
+  # Cap each incremental catch-up to a bit more than the weekly schedule.
+  UPDATE_WINDOW_DAYS: "10"
   COMMENT_MAX_PAGES: "150"
   PUSH_LIMIT: "500"
   REVIEW_LIMIT: "500"
