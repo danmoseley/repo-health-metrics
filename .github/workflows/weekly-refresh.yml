@@ -17,6 +17,7 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   PYTHONUNBUFFERED: "1"
+  UPDATE_WINDOW_DAYS: "1"
   REPOS: >-
     dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
     microsoft/vscode golang/go rust-lang/rust
@@ -79,7 +80,7 @@ jobs:
         run: mv db-artifact/pr-dashboard.db pr-dashboard.db
 
       - name: Fetch items (incremental)
-        run: python fetch.py --update --repos ${{ env.REPOS }}
+        run: python fetch.py --update --update-window-days ${{ env.UPDATE_WINDOW_DAYS }} --repos ${{ env.REPOS }}
 
       - name: Fetch merged_by
         run: python fetch_mergers.py --repos ${{ env.REPOS }}

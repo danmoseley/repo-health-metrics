@@ -60,6 +60,24 @@ AUX_TABLES = [
         ["repo", "number", "last_fetched_at", "is_complete"],
     ),
     (
+        "fetch_progress",
+        "data/fetch_progress.csv",
+        """CREATE TABLE IF NOT EXISTS fetch_progress (
+            repo TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            last_page INTEGER NOT NULL DEFAULT 0,
+            items_fetched INTEGER NOT NULL DEFAULT 0,
+            total_expected INTEGER,
+            updated_at TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            sync_started_at TEXT,
+            next_url TEXT,
+            PRIMARY KEY (repo, item_type)
+        );""",
+        ["repo", "item_type", "last_page", "items_fetched", "total_expected",
+         "updated_at", "status", "sync_started_at", "next_url"],
+    ),
+    (
         "pr_reviews",
         "data/pr_reviews.csv.gz",
         """CREATE TABLE IF NOT EXISTS pr_reviews (
@@ -293,8 +311,7 @@ def main():
     # ─── Auxiliary tables (preserved data: comments, pushes, etc.) ───
     load_aux_tables(conn)
 
-    # Mark all repos as complete in fetch_progress
-    # But only mark a type as complete if we actually have items of that type
+    # Backfill fetch_progress only for repos that do not already have restored state.
     repos = conn.execute("SELECT DISTINCT repo FROM items").fetchall()
     for (repo,) in repos:
         for item_type in ("issue", "pr"):
@@ -304,14 +321,13 @@ def main():
                 (repo, is_pr),
             ).fetchone()[0]
             if n > 0:
-                # Derive watermark from most recent item timestamp
                 watermark = conn.execute(
                     "SELECT max(coalesce(closed_at, created_at)) FROM items "
                     "WHERE repo=? AND is_pull_request=?",
                     (repo, is_pr),
                 ).fetchone()[0]
                 conn.execute(
-                    "INSERT OR REPLACE INTO fetch_progress "
+                    "INSERT OR IGNORE INTO fetch_progress "
                     "(repo, item_type, last_page, items_fetched, status, sync_started_at) "
                     "VALUES (?, ?, 0, ?, 'complete', ?)",
                     (repo, item_type, n, watermark),

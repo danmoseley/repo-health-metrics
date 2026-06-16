@@ -449,7 +449,7 @@ def parse_item(repo, item, is_pr):
     )
 
 
-def update_repo(conn, session, repo, request_delay):
+def update_repo(conn, session, repo, request_delay, max_advance_days=0):
     """
     Incremental update for a completed repo using /issues?since=.
 
@@ -480,10 +480,18 @@ def update_repo(conn, session, repo, request_delay):
         return None
 
     oldest_watermark = min(watermarks)
-    since_dt = datetime.fromisoformat(oldest_watermark.replace("Z", "+00:00")) - timedelta(days=2)
+    watermark_dt = datetime.fromisoformat(oldest_watermark.replace("Z", "+00:00"))
+    since_dt = watermark_dt - timedelta(days=2)
     since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if max_advance_days and max_advance_days > 0:
+        cap_end_dt = min(datetime.now(timezone.utc), watermark_dt + timedelta(days=max_advance_days))
+    else:
+        cap_end_dt = datetime.now(timezone.utc)
+    cap_end_str = cap_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"  Watermark: {oldest_watermark}", flush=True)
     print(f"  Fetching changes since: {since_str} (2-day overlap)", flush=True)
+    if max_advance_days and max_advance_days > 0:
+        print(f"  Capped advance    : {cap_end_str} (+{max_advance_days} day window or now)", flush=True)
 
     # Fetch all changed items via /issues?since=
     # Use Link header pagination (not page numbers) to handle large result sets.
@@ -499,6 +507,7 @@ def update_repo(conn, session, repo, request_delay):
     page = 0
     issues_updated = 0
     prs_to_hydrate = set()
+    capped = False
 
     while not _shutdown_requested:
         print(f"  [{repo}] fetching issue/PR updates page {page + 1}...", flush=True)
@@ -513,6 +522,13 @@ def update_repo(conn, session, repo, request_delay):
         page += 1
         batch = []
         for item in data:
+            item_updated_at = item.get("updated_at") or ""
+            if not item_updated_at:
+                print("  WARNING: item missing updated_at; aborting repo update", flush=True)
+                return None
+            if max_advance_days and max_advance_days > 0 and item_updated_at > cap_end_str:
+                capped = True
+                break
             is_pr = "pull_request" in item
             if is_pr:
                 # Check if we need to hydrate this PR
@@ -536,6 +552,9 @@ def update_repo(conn, session, repo, request_delay):
                 batch.append(parse_item(repo, item, is_pr=False))
                 issues_updated += 1
 
+        if capped:
+            print(f"  Reached cap at updated_at {item_updated_at}; deferring newer items to the next run", flush=True)
+
         if batch:
             conn.executemany(UPSERT_SQL, batch)
             conn.commit()
@@ -553,7 +572,7 @@ def update_repo(conn, session, repo, request_delay):
                 next_link = part.split(";")[0].strip().strip("<>")
                 break
 
-        if not next_link or len(data) < 100:
+        if capped or not next_link or len(data) < 100:
             break
 
         next_url = next_link
@@ -593,6 +612,16 @@ def update_repo(conn, session, repo, request_delay):
             time.sleep(request_delay)
 
         conn.commit()
+
+    if capped:
+        print(f"  Capped update complete; advancing watermark to {cap_end_str}")
+    advance_to = cap_end_str if capped else datetime.now(timezone.utc).isoformat()
+    for item_type in ("issue", "pr"):
+        conn.execute(
+            "UPDATE fetch_progress SET sync_started_at = ? WHERE repo = ? AND item_type = ?",
+            (advance_to, repo, item_type),
+        )
+    conn.commit()
 
     print(f"  Updated: {issues_updated} issues, {prs_updated} PRs", flush=True)
     return issues_updated, prs_updated
@@ -777,6 +806,10 @@ def main():
         help="Incremental update: fetch only items changed since last sync (~5-10 min)"
     )
     parser.add_argument(
+        "--update-window-days", type=int, default=0,
+        help="Limit --update to at most N days beyond the watermark (0 = until now)"
+    )
+    parser.add_argument(
         "--hydrate", action="store_true",
         help="Backfill merged_by for merged PRs (fetches individual PR details)"
     )
@@ -887,7 +920,7 @@ def main():
             print(f"{'='*60}")
             print(f"  Starting incremental update for {repo}", flush=True)
 
-            result = update_repo(conn, session, repo, args.delay)
+            result = update_repo(conn, session, repo, args.delay, args.update_window_days)
             if result is None:
                 if _shutdown_requested:
                     any_failed = True
@@ -895,20 +928,8 @@ def main():
                 # Distinguish "skipped (not complete)" from "failed"
                 # update_repo prints the reason; either way don't advance watermark
                 any_failed = True
-
-        # Only persist watermark if no repos failed/were interrupted
-        if not any_failed:
-            for repo in repos:
-                for item_type in ("issue", "pr"):
-                    conn.execute(
-                        "UPDATE fetch_progress SET sync_started_at = ? "
-                        "WHERE repo = ? AND item_type = ?",
-                        (sync_started_at, repo, item_type)
-                    )
-            conn.commit()
-            print(f"\n  Watermark advanced to {sync_started_at}")
-        else:
-            print(f"\n  Watermark NOT advanced (incomplete or failed run)")
+        if any_failed:
+            print(f"\n  One or more repos failed; successful repos kept their own updated watermarks")
     else:
         # --- Full fetch mode ---
         for i, repo in enumerate(repos):

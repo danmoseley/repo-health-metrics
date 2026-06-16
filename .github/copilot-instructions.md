@@ -26,6 +26,10 @@ git add data/*.csv*
 git commit -m "Refresh data backups"
 ```
 
+- Keep `fetch_progress.csv` in the committed CSV set so incremental weekly runs
+  resume from the durable watermark instead of re-deriving progress from item
+  timestamps.
+
 ## GitHub CLI Auth
 
 This repo is owned by `danmoseley`. If `gh` commands return 403, run
