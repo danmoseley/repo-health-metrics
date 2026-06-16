@@ -278,7 +278,7 @@ jobs:
       - fetch-engagement
       - fetch-copilot-metadata
       - refresh
-    if: failure()
+    if: ${{ always() && failure() }}
     permissions:
       issues: write
     steps:

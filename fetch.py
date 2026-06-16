@@ -126,6 +126,7 @@ def init_db(db_path):
             conn.execute(f"ALTER TABLE items ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
             pass  # column already exists
+    conn.execute("UPDATE items SET merged_by = NULL, merged_by_checked = 1 WHERE merged_by = ''")
     conn.execute(
         "UPDATE items SET merged_by_checked = CASE "
         "WHEN merged_by IS NOT NULL THEN 1 "
@@ -702,7 +703,7 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
                 try:
                     conn.execute(
                         "UPDATE items SET merged_by_checked = 1 "
-                        "WHERE repo = ? AND number = ? AND merged_by IS NOT NULL",
+                        "WHERE repo = ? AND number = ? AND merged_by_checked = 0",
                         (repo, number)
                     )
                     break
