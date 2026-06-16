@@ -98,7 +98,7 @@ def fetch_merged_by(conn, session, token, repo):
     ]
     need = len(missing_numbers)
     if need == 0:
-        print(f"  {repo}: all merged PRs already have merged_by")
+        print(f"  {repo}: no merged PRs with NULL merged_by (sentinel-empty rows are skipped)")
         return
 
     total_merged = conn.execute(
