@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import signal
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
@@ -172,25 +173,36 @@ def fetch_page(session, url, params, max_retries=5):
         if _shutdown_requested:
             return None
 
+        stop_heartbeat = threading.Event()
+        parsed = urlparse(url)
+        target = parsed.path.rsplit("/", 1)[-1]
+        page = params.get("page")
+        since = params.get("since")
+        detail = []
+        if page:
+            detail.append(f"page={page}")
+        if since:
+            detail.append(f"since={since}")
+        suffix = f" ({', '.join(detail)})" if detail else ""
+
+        def heartbeat():
+            while not stop_heartbeat.wait(30):
+                print(f"  Waiting on {target}{suffix}...", flush=True)
+
+        ticker = threading.Thread(target=heartbeat, daemon=True)
+        ticker.start()
         try:
-            parsed = urlparse(url)
-            target = parsed.path.rsplit("/", 1)[-1]
-            page = params.get("page")
-            since = params.get("since")
-            detail = []
-            if page:
-                detail.append(f"page={page}")
-            if since:
-                detail.append(f"since={since}")
-            suffix = f" ({', '.join(detail)})" if detail else ""
             print(f"  GET {target}{suffix}...", flush=True)
             resp = session.get(url, params=params, timeout=30)
         except req.exceptions.RequestException as e:
+            stop_heartbeat.set()
             wait = min(4 ** attempt, 120)
             print(f"  Network error: {e}")
             print(f"  Retry {attempt + 1}/{max_retries} in {wait}s...")
             time.sleep(wait)
             continue
+        finally:
+            stop_heartbeat.set()
 
         remaining, reset_ts = check_rate_limit(resp)
 
