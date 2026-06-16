@@ -4,7 +4,13 @@ on:
   schedule:
     # Monday 06:00 UTC
     - cron: '17 3 * * 1'
-  workflow_dispatch:  # allow manual trigger
+  workflow_dispatch:
+    inputs:
+      refresh_only:
+        description: "Run only restore+analyze smoke (skip fetch stages)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: weekly-refresh
@@ -31,8 +37,30 @@ env:
   REVIEW_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
 
 jobs:
+  refresh-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.refresh_only == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore DB from CSVs
+        run: python load_csv.py --force
+
+      - name: Generate charts
+        run: python analyze.py
+
   # Carry the SQLite DB between stages so no single job hits the 5-hour limit.
   prepare-db:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -61,6 +89,7 @@ jobs:
           overwrite: true
 
   fetch-items:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true' }}
     runs-on: ubuntu-latest
     needs: prepare-db
     timeout-minutes: 240
@@ -102,6 +131,7 @@ jobs:
           overwrite: true
 
   fetch-engagement:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true' }}
     runs-on: ubuntu-latest
     needs: fetch-items
     timeout-minutes: 240
@@ -143,6 +173,7 @@ jobs:
           overwrite: true
 
   fetch-copilot-metadata:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true' }}
     runs-on: ubuntu-latest
     needs: fetch-engagement
     timeout-minutes: 240
@@ -204,6 +235,7 @@ jobs:
           overwrite: true
 
   refresh:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true' }}
     runs-on: ubuntu-latest
     needs: fetch-copilot-metadata
     timeout-minutes: 120
@@ -271,6 +303,7 @@ jobs:
           fi
 
   notify-failure:
+    if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true') && always() && failure() }}
     runs-on: ubuntu-latest
     needs:
       - prepare-db
@@ -278,7 +311,6 @@ jobs:
       - fetch-engagement
       - fetch-copilot-metadata
       - refresh
-    if: ${{ always() && failure() }}
     permissions:
       issues: write
     steps:
