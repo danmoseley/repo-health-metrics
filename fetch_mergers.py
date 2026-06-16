@@ -17,7 +17,7 @@ import subprocess
 import signal
 from datetime import datetime, timezone
 
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.1
 _shutdown = False
 
 def signal_handler(sig, frame):
@@ -45,21 +45,27 @@ def get_token():
     return token
 
 
-QUERY = """
-query($owner: String!, $name: String!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequests(first: 100, after: $cursor, states: MERGED, orderBy: {field: CREATED_AT, direction: ASC}) {
-      totalCount
-      pageInfo { hasNextPage endCursor }
-      nodes {
+def build_pull_requests_query(numbers):
+    """Build a GraphQL query that fetches specific PR numbers in one request."""
+    fields = []
+    for i, number in enumerate(numbers):
+        fields.append(
+            f"""
+      pr{i}: pullRequest(number: {number}) {{
         number
-        mergedBy { login }
-        author { login }
-      }
-    }
-  }
-  rateLimit { remaining resetAt }
-}
+        mergedBy {{ login }}
+        author {{ login }}
+      }}
+"""
+        )
+    joined = "".join(fields)
+    return f"""
+query($owner: String!, $name: String!) {{
+  repository(owner: $owner, name: $name) {{
+{joined}
+  }}
+  rateLimit {{ remaining resetAt }}
+}}
 """
 
 
@@ -79,16 +85,18 @@ def graphql_request(session, token, query, variables):
 
 
 def fetch_merged_by(conn, session, token, repo):
-    """Fetch merged_by for all merged PRs in a repo via GraphQL."""
+    """Fetch merged_by only for PRs that are still missing it."""
     owner, name = repo.split("/")
 
-    # Check how many we still need
-    need = conn.execute(
-        "SELECT COUNT(*) FROM items WHERE repo=? AND is_pull_request=1 "
-        "AND merged_at IS NOT NULL AND merged_at != '' AND (merged_by IS NULL OR merged_by = '')",
-        (repo,)
-    ).fetchone()[0]
-
+    missing_numbers = [
+        row[0] for row in conn.execute(
+            "SELECT number FROM items WHERE repo=? AND is_pull_request=1 "
+            "AND merged_at IS NOT NULL AND merged_at != '' AND merged_by IS NULL "
+            "ORDER BY number ASC",
+            (repo,),
+        ).fetchall()
+    ]
+    need = len(missing_numbers)
     if need == 0:
         print(f"  {repo}: all merged PRs already have merged_by")
         return
@@ -101,99 +109,130 @@ def fetch_merged_by(conn, session, token, repo):
 
     print(f"  {repo}: {need:,} of {total_merged:,} merged PRs need merged_by")
 
-    cursor = None
     updated = 0
-    page = 0
+    failed_chunks = 0
+    chunk_size = 20
+    chunks_done = 0
+    total_chunks = (need + chunk_size - 1) // chunk_size
 
-    while not _shutdown:
-        variables = {"owner": owner, "name": name, "cursor": cursor}
-
-        for attempt in range(5):
-            try:
-                resp = graphql_request(session, token, QUERY, variables)
-                break
-            except Exception as e:
-                wait = min(4 ** attempt, 120)
-                print(f"    Error: {e}, retry in {wait}s...")
-                time.sleep(wait)
-        else:
-            print(f"    FAILED after 5 retries")
+    for idx in range(0, need, chunk_size):
+        if _shutdown:
             break
 
-        if resp.status_code != 200:
-            body = resp.text[:300]
-            if resp.status_code == 403 or "rate limit" in body.lower():
-                rl = resp.json().get("data", {}).get("rateLimit", {})
-                reset_at = rl.get("resetAt", "unknown")
-                print(f"    Rate limited, resets at {reset_at}")
-                # Parse reset time and sleep
+        chunk = missing_numbers[idx:idx + chunk_size]
+        query = build_pull_requests_query(chunk)
+        variables = {"owner": owner, "name": name}
+        while not _shutdown:
+            for attempt in range(5):
+                try:
+                    resp = graphql_request(session, token, query, variables)
+                    break
+                except Exception as e:
+                    wait = min(4 ** attempt, 120)
+                    print(f"    Error: {e}, retry in {wait}s...")
+                    time.sleep(wait)
+            else:
+                print(f"    FAILED after 5 retries")
+                failed_chunks += 1
+                break
+
+            if resp.status_code != 200:
+                body = resp.text[:300]
+                if resp.status_code == 403 or "rate limit" in body.lower():
+                    rl = resp.json().get("data", {}).get("rateLimit", {})
+                    reset_at = rl.get("resetAt", "unknown")
+                    print(f"    Rate limited, resets at {reset_at}")
+                    # Parse reset time and sleep
+                    try:
+                        reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
+                        wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
+                    except:
+                        wait = 600
+                    print(f"    Sleeping {wait:.0f}s...")
+                    time.sleep(wait)
+                    continue
+                print(f"    HTTP {resp.status_code}: {body}")
+                failed_chunks += 1
+                break
+
+            data = resp.json()
+            if "errors" in data:
+                err_text = str(data["errors"]).lower()
+                if "rate limit" in err_text or "throttle" in err_text:
+                    rl = data.get("data", {}).get("rateLimit", {})
+                    reset_at = rl.get("resetAt", "unknown")
+                    print(f"    GraphQL rate-limited, resets at {reset_at}")
+                    try:
+                        reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
+                        wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
+                    except:
+                        wait = 600
+                    print(f"    Sleeping {wait:.0f}s...")
+                    time.sleep(wait)
+                    continue
+                print(f"    GraphQL errors: {data['errors']}")
+                failed_chunks += 1
+                break
+
+            repo_data = data["data"]["repository"]
+            if not repo_data:
+                print("    GraphQL returned no repository data")
+                failed_chunks += 1
+                break
+            rl = data["data"]["rateLimit"]
+
+            batch = []
+            for i in range(len(chunk)):
+                node = repo_data.get(f"pr{i}")
+                if not node:
+                    continue
+                merged_by = None
+                if node.get("mergedBy"):
+                    merged_by = node["mergedBy"].get("login")
+                author = None
+                if node.get("author"):
+                    author = node["author"].get("login")
+                if merged_by:
+                    batch.append((merged_by, author, repo, node["number"]))
+
+            if batch:
+                conn.executemany(
+                    "UPDATE items SET merged_by=?, author=COALESCE(author, ?) "
+                    "WHERE repo=? AND number=?",
+                    batch
+                )
+                updated += len(batch)
+
+            chunks_done += 1
+            if chunks_done % 25 == 0 or chunks_done == total_chunks:
+                conn.commit()
+                ts = datetime.now().strftime("%H:%M:%S")
+                checked = min(idx + len(chunk), need)
+                print(
+                    f"    [{ts}] chunk {chunks_done}/{total_chunks}: "
+                    f"{checked:,}/{need:,} checked, {updated:,} updated "
+                    f"(RL: {rl['remaining']})"
+                )
+
+            # Proactive rate limit check
+            if int(rl["remaining"]) < 50:
+                reset_at = rl["resetAt"]
                 try:
                     reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
                     wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
                 except:
                     wait = 600
-                print(f"    Sleeping {wait:.0f}s...")
+                print(f"    Rate limit low ({rl['remaining']}), sleeping {wait:.0f}s...")
                 time.sleep(wait)
-                continue
-            print(f"    HTTP {resp.status_code}: {body}")
+
+            time.sleep(REQUEST_DELAY)
             break
-
-        data = resp.json()
-        if "errors" in data:
-            print(f"    GraphQL errors: {data['errors']}")
-            break
-
-        prs_data = data["data"]["repository"]["pullRequests"]
-        page_info = prs_data["pageInfo"]
-        nodes = prs_data["nodes"]
-        rl = data["data"]["rateLimit"]
-
-        batch = []
-        for node in nodes:
-            merged_by = None
-            if node.get("mergedBy"):
-                merged_by = node["mergedBy"].get("login")
-            author = None
-            if node.get("author"):
-                author = node["author"].get("login")
-            if merged_by:
-                batch.append((merged_by, author, repo, node["number"]))
-
-        if batch:
-            conn.executemany(
-                "UPDATE items SET merged_by=?, author=COALESCE(author, ?) "
-                "WHERE repo=? AND number=?",
-                batch
-            )
-            updated += len(batch)
-
-        page += 1
-        if page % 10 == 0:
-            conn.commit()
-            ts = datetime.now().strftime("%H:%M:%S")
-            print(f"    [{ts}] page {page}: {updated:,} updated "
-                  f"(RL: {rl['remaining']})")
-
-        if not page_info["hasNextPage"]:
-            break
-
-        cursor = page_info["endCursor"]
-
-        # Proactive rate limit check
-        if int(rl["remaining"]) < 50:
-            reset_at = rl["resetAt"]
-            try:
-                reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
-                wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
-            except:
-                wait = 600
-            print(f"    Rate limit low ({rl['remaining']}), sleeping {wait:.0f}s...")
-            time.sleep(wait)
-
-        time.sleep(REQUEST_DELAY)
 
     conn.commit()
-    print(f"  {repo}: updated {updated:,} PRs with merged_by")
+    print(
+        f"  {repo}: updated {updated:,} PRs with merged_by"
+        + (f", failed chunks: {failed_chunks}" if failed_chunks else "")
+    )
 
 
 def main():
