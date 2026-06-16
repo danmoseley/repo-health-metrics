@@ -447,8 +447,8 @@ def update_repo(conn, session, repo, request_delay):
     oldest_watermark = min(watermarks)
     since_dt = datetime.fromisoformat(oldest_watermark.replace("Z", "+00:00")) - timedelta(days=2)
     since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"  Watermark: {oldest_watermark}")
-    print(f"  Fetching changes since: {since_str} (2-day overlap)")
+    print(f"  Watermark: {oldest_watermark}", flush=True)
+    print(f"  Fetching changes since: {since_str} (2-day overlap)", flush=True)
 
     # Fetch all changed items via /issues?since=
     # Use Link header pagination (not page numbers) to handle large result sets.
@@ -504,10 +504,10 @@ def update_repo(conn, session, repo, request_delay):
             conn.executemany(UPSERT_SQL, batch)
             conn.commit()
 
-        if page == 1 or page % 10 == 0:
+        if page == 1 or page % 2 == 0:
             ts = datetime.now().strftime("%H:%M:%S")
             print(f"  [{ts}] page {page}: {issues_updated} issues, "
-                  f"{len(prs_to_hydrate)} PRs queued for hydration")
+                  f"{len(prs_to_hydrate)} PRs queued for hydration", flush=True)
 
         # Follow Link header for next page (cursor-based pagination)
         link_header = resp.headers.get("Link", "")
@@ -531,7 +531,7 @@ def update_repo(conn, session, repo, request_delay):
     prs_updated = 0
     prs_to_hydrate = sorted(prs_to_hydrate)
     if prs_to_hydrate:
-        print(f"  Hydrating {len(prs_to_hydrate)} PRs...")
+        print(f"  Hydrating {len(prs_to_hydrate)} PRs...", flush=True)
         for i, number in enumerate(prs_to_hydrate):
             if _shutdown_requested:
                 return None
@@ -547,16 +547,16 @@ def update_repo(conn, session, repo, request_delay):
             conn.execute(UPSERT_SQL, row)
             prs_updated += 1
 
-            if (i + 1) % 50 == 0:
+            if (i + 1) % 10 == 0:
                 conn.commit()
                 ts = datetime.now().strftime("%H:%M:%S")
-                print(f"  [{ts}] hydrated {i + 1}/{len(prs_to_hydrate)} PRs")
+                print(f"  [{ts}] hydrated {i + 1}/{len(prs_to_hydrate)} PRs", flush=True)
 
             time.sleep(request_delay)
 
         conn.commit()
 
-    print(f"  Updated: {issues_updated} issues, {prs_updated} PRs")
+    print(f"  Updated: {issues_updated} issues, {prs_updated} PRs", flush=True)
     return issues_updated, prs_updated
 
 
