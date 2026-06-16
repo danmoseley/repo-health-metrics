@@ -1,6 +1,7 @@
 hash	title
 02417a5	Community Issue Turnaround (% Closed Within 30 Days, 6-month avg)
 0682c7a	Copilot PRs by Type — dotnet repos aggregated (4-week avg)
+09be786	Net PR Flow — last 4 months (7-day trailing sum, lightly smoothed)
 14a9037	% of PRs Receiving CHANGES_REQUESTED (4-week rolling)
 1b1f105	PR Merge Rate (Merged per Week, 52-week rolling avg)
 1e9930e	First Human Comment to Merge — P50 (weekly, 4-week rolling)
@@ -29,6 +30,7 @@ hash	title
 7bc05d9	Copilot Review → Human Approval (P50 hours, 4-week rolling)
 7f1d798	PR Merge Rate — last 4 months (7-day trailing sum)
 8259e7a	First Comment to Merge Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)
+83a3ef9	PR Merge Rate — last 12 months (28-day trailing sum)
 85e679f	First-Time Community Contributor Retention (% returning within 12 months)
 8847a7f	Community PR Concentration
 9053d2a	Issue Turnaround (% Closed Within 30 Days, 6-month avg)
@@ -46,7 +48,6 @@ c12f8ef	PRs Merged per Active Maintainer (Monthly, 4-month avg)
 c22c906	Time to First Comment Delta (Human − Copilot, positive = copilot sooner) — per repo (4-week rolling P50)
 c7884fc	Community Share of PRs (6-month avg)
 cb9d102	Net PR Flow (Opened − Merged per Week, 2-year avg)
-cfcc224	Net PR Flow — last 4 months (7-day trailing sum)
 d291c2f	Copilot Review Comments per 100 Lines Changed (4-week rolling mean)
 d797abb	Open PRs (6-month avg)
 daea0f2	Human Reviewers per PR (4-week rolling mean)
