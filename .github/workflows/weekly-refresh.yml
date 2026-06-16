@@ -18,6 +18,10 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   PYTHONUNBUFFERED: "1"
   UPDATE_WINDOW_DAYS: "1"
+  COMMENT_MAX_PAGES: "150"
+  PUSH_LIMIT: "500"
+  REVIEW_LIMIT: "500"
+  COPILOT_COMMITS_LIMIT: "500"
   REPOS: >-
     dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
     microsoft/vscode golang/go rust-lang/rust
@@ -121,10 +125,10 @@ jobs:
         run: mv db-artifact/pr-dashboard.db pr-dashboard.db
 
       - name: Fetch first comments
-        run: python fetch_comments.py
+        run: python fetch_comments.py --max-pages ${{ env.COMMENT_MAX_PAGES }}
 
       - name: Fetch PR push events
-        run: python fetch_pr_pushes.py --repos ${{ env.PUSH_REPOS }}
+        run: python fetch_pr_pushes.py --repos ${{ env.PUSH_REPOS }} --limit ${{ env.PUSH_LIMIT }}
 
       - name: Checkpoint DB
         run: |
@@ -162,13 +166,13 @@ jobs:
         run: mv db-artifact/pr-dashboard.db pr-dashboard.db
 
       - name: Fetch Copilot commit trailers
-        run: python fetch_copilot_commits.py --repos ${{ env.REPOS }}
+        run: python fetch_copilot_commits.py --repos ${{ env.REPOS }} --limit ${{ env.COPILOT_COMMITS_LIMIT }}
 
       - name: Fetch Copilot PR requesters
         run: python fetch_copilot_requesters.py
 
       - name: Fetch review timeline data
-        run: python fetch_reviews.py --repos ${{ env.REVIEW_REPOS }}
+        run: python fetch_reviews.py --repos ${{ env.REVIEW_REPOS }} --limit ${{ env.REVIEW_LIMIT }}
 
       - name: Fetch issue authors (backfill, skip if few missing)
         run: |

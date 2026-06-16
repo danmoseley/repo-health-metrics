@@ -528,7 +528,7 @@ def _thread_comment_keys(thread):
     return []
 
 
-def fetch_repo_reviews(conn, session, token, repo, since_date):
+def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None):
     """Fetch review data for all recent merged PRs in a repo."""
     owner, name = repo.split("/")
 
@@ -561,6 +561,8 @@ def fetch_repo_reviews(conn, session, token, repo, since_date):
     ).fetchall()
 
     pr_numbers = [r[0] for r in prs]
+    if limit:
+        pr_numbers = pr_numbers[:limit]
     total = len(pr_numbers)
     if total == 0:
         print(f"  {repo}: all recent merged PRs already fetched")
@@ -761,6 +763,10 @@ def main():
         "--retry-failed", action="store_true",
         help="Retry PRs that previously failed",
     )
+    parser.add_argument(
+        "--limit", type=int, default=None,
+        help="Max PRs to fetch per repo for this run",
+    )
     args = parser.parse_args()
 
     token = get_token()
@@ -792,7 +798,7 @@ def main():
     for repo in repos:
         if _shutdown:
             break
-        fetch_repo_reviews(conn, session, token, repo, since_date)
+        fetch_repo_reviews(conn, session, token, repo, since_date, args.limit)
         print()
 
     # Also fetch Copilot agentic review comments (github-actions[bot])
