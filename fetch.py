@@ -128,7 +128,7 @@ def init_db(db_path):
             pass  # column already exists
     conn.execute(
         "UPDATE items SET merged_by_checked = CASE "
-        "WHEN merged_by IS NOT NULL AND merged_by != '' THEN 1 "
+        "WHEN merged_by IS NOT NULL THEN 1 "
         "ELSE COALESCE(merged_by_checked, 0) END"
     )
     # Migration: add sync_started_at to fetch_progress
@@ -702,7 +702,7 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
                 try:
                     conn.execute(
                         "UPDATE items SET merged_by_checked = 1 "
-                        "WHERE repo = ? AND number = ? AND merged_by IS NULL",
+                        "WHERE repo = ? AND number = ? AND merged_by IS NOT NULL",
                         (repo, number)
                     )
                     break

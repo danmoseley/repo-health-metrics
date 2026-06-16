@@ -289,8 +289,7 @@ def main():
                 idx = header_index.get(column)
                 values.append(row[idx] if idx is not None and idx < len(row) else None)
             if not has_merged_by_checked:
-                merged_by = values[9]
-                values[10] = 1 if merged_by else 0
+                values[10] = 1
             elif values[10] is None:
                 values[10] = 0
             batch.append(values)
@@ -308,9 +307,8 @@ def main():
 
     if not has_merged_by_checked:
         conn.execute(
-            "UPDATE items SET merged_by_checked = CASE "
-            "WHEN merged_by IS NOT NULL AND merged_by != '' THEN 1 "
-            "ELSE 0 END"
+            "UPDATE items SET merged_by_checked = 1 "
+            "WHERE merged_by_checked = 0"
         )
         conn.commit()
 

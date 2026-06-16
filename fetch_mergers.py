@@ -190,10 +190,11 @@ def fetch_merged_by(conn, session, token, repo):
             checked_batch = []
             merged_batch = []
             for i in range(len(chunk)):
+                number = chunk[i]
                 node = repo_data.get(f"pr{i}")
+                checked_batch.append((1, repo, number))
                 if not node:
                     continue
-                checked_batch.append((1, repo, node["number"]))
                 merged_by = None
                 if node.get("mergedBy"):
                     merged_by = node["mergedBy"].get("login")
@@ -201,7 +202,7 @@ def fetch_merged_by(conn, session, token, repo):
                 if node.get("author"):
                     author = node["author"].get("login")
                 if merged_by:
-                    merged_batch.append((merged_by, author, repo, node["number"]))
+                    merged_batch.append((merged_by, author, repo, number))
 
             if checked_batch:
                 conn.executemany(
