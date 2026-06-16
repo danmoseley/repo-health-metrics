@@ -151,7 +151,7 @@ def fetch_merged_by(conn, session, token, repo):
                     try:
                         reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
                         wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
-                    except:
+                    except Exception:
                         wait = 600
                     print(f"    Sleeping {wait:.0f}s...")
                     time.sleep(wait)
@@ -170,7 +170,7 @@ def fetch_merged_by(conn, session, token, repo):
                     try:
                         reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
                         wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
-                    except:
+                    except Exception:
                         wait = 600
                     print(f"    Sleeping {wait:.0f}s...")
                     time.sleep(wait)
@@ -237,7 +237,7 @@ def fetch_merged_by(conn, session, token, repo):
                 try:
                     reset = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
                     wait = max((reset - datetime.now(timezone.utc)).total_seconds(), 0) + 10
-                except:
+                except Exception:
                     wait = 600
                 print(f"    Rate limit low ({rl_remaining}), sleeping {wait:.0f}s...")
                 time.sleep(wait)
