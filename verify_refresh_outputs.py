@@ -173,6 +173,7 @@ def main() -> int:
 
     problems: list[str] = []
     problems.extend(compare_items(args.baseline_ref, args.repos))
+    problems.extend(compare_progress_csv(args.baseline_ref, "data/fetch_progress.csv", "sync_started_at"))
     problems.extend(compare_progress_csv(args.baseline_ref, "data/pr_push_progress.csv", "last_fetched_at"))
     problems.extend(compare_progress_csv(args.baseline_ref, "data/review_fetch_progress.csv", "fetched_at"))
     problems.extend(compare_charts(args.baseline_ref))
