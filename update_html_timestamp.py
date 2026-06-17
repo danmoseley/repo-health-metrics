@@ -37,8 +37,7 @@ def get_data_gathered_up_to(data_path, html_path):
     with open(html_path, "r", encoding="utf-8") as f:
         displayed_repos = get_displayed_repos(f.read())
 
-    oldest = None
-    matched_repos = set()
+    latest_by_repo = {}
     with open(data_path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             if row.get("status") != "complete":
@@ -49,17 +48,17 @@ def get_data_gathered_up_to(data_path, html_path):
             parsed = parse_iso_timestamp(row.get("sync_started_at", ""))
             if parsed is None:
                 continue
-            matched_repos.add(repo)
-            if oldest is None or parsed < oldest:
-                oldest = parsed
+            current = latest_by_repo.get(repo)
+            if current is None or parsed > current:
+                latest_by_repo[repo] = parsed
 
-    missing_repos = displayed_repos - matched_repos
+    missing_repos = displayed_repos - latest_by_repo.keys()
     if missing_repos:
         missing = ", ".join(sorted(missing_repos))
         raise RuntimeError(f"Missing complete sync_started_at data for displayed repos: {missing}")
-    if oldest is None:
+    if not latest_by_repo:
         raise RuntimeError(f"Failed to find a parseable complete sync_started_at in {data_path}")
-    return oldest.isoformat()
+    return min(latest_by_repo.values()).isoformat()
 
 
 def update_timestamp(html_path, data_timestamp):
