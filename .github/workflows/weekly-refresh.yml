@@ -265,6 +265,9 @@ jobs:
       - name: Generate charts
         run: python analyze.py
 
+      - name: Update HTML timestamp
+        run: python update_html_timestamp.py
+
       - name: Create or update PR
         if: ${{ github.ref_name == 'master' }}
         run: |
