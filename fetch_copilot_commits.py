@@ -66,6 +66,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repos", nargs="*", help="Repos to process (default: all in DB)")
     parser.add_argument("--db", default=DB_PATH)
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Max PRs to check per repo for this run")
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -105,10 +107,6 @@ def main():
             "SELECT status FROM copilot_trailer_progress WHERE repo=?",
             (repo,)
         ).fetchone()
-        if row and row[0] == "complete":
-            print(f"\n{repo}: already complete, skipping")
-            continue
-
         if not row:
             conn.execute(
                 "INSERT INTO copilot_trailer_progress (repo, status) VALUES (?, 'in_progress')",
@@ -130,6 +128,8 @@ def main():
             (repo, cutoff)
         ).fetchall()
         pr_numbers = [r[0] for r in prs]
+        if args.limit is not None:
+            pr_numbers = pr_numbers[:args.limit]
 
         total = len(pr_numbers)
         print(f"\n{repo}: {total} PRs to check")

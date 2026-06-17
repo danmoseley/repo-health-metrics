@@ -205,7 +205,7 @@ def is_qualifying_comment(commenter, pr_info_entry):
     return True
 
 
-def fetch_comments_for_repo(session, conn, repo, since_date):
+def fetch_comments_for_repo(session, conn, repo, since_date, max_pages=None):
     """Fetch all comments for a repo using the bulk endpoint."""
     owner, name = repo.split("/")
     url = f"https://api.github.com/repos/{owner}/{name}/issues/comments"
@@ -320,6 +320,9 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
         link = resp.headers.get("Link", "")
         if 'rel="next"' not in link:
             break
+        if max_pages and page >= max_pages:
+            print(f"  Reached page cap at {page} pages")
+            break
         # Extract next URL
         for part in link.split(","):
             if 'rel="next"' in part:
@@ -349,7 +352,7 @@ def fetch_comments_for_repo(session, conn, repo, since_date):
     return new_first_comments
 
 
-def fetch_review_comments_for_repo(session, conn, repo, since_date):
+def fetch_review_comments_for_repo(session, conn, repo, since_date, max_pages=None):
     """Fetch PR review comments (inline code review) using the bulk endpoint.
     
     This complements fetch_comments_for_repo which only gets issue-style comments.
@@ -482,6 +485,9 @@ def fetch_review_comments_for_repo(session, conn, repo, since_date):
         link = resp.headers.get("Link", "")
         if 'rel="next"' not in link:
             break
+        if max_pages and page >= max_pages:
+            print(f"  [review] Reached page cap at {page} pages")
+            break
         for part in link.split(","):
             if 'rel="next"' in part:
                 next_url = part.split(";")[0].strip().strip("<>")
@@ -520,6 +526,8 @@ def main():
     parser.add_argument("--db", default=DEFAULT_DB, help="Database path")
     parser.add_argument("--repos", nargs="+", help="Specific repos to fetch")
     parser.add_argument("--since", help="Start date (YYYY-MM-DD), default ~14 months ago")
+    parser.add_argument("--max-pages", type=int, default=0,
+                        help="Max pages per repo for each comment pass (0 = unlimited)")
     args = parser.parse_args()
 
     db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.db)
@@ -556,7 +564,7 @@ def main():
         print(f"\n{'='*60}")
         print(f"  {repo}")
         print(f"{'='*60}")
-        n = fetch_comments_for_repo(session, conn, repo, since_date)
+        n = fetch_comments_for_repo(session, conn, repo, since_date, args.max_pages or None)
         total += n
 
     # Second pass: PR review comments (inline code review)
@@ -569,7 +577,7 @@ def main():
         print(f"\n{'='*60}")
         print(f"  {repo} [review comments]")
         print(f"{'='*60}")
-        n = fetch_review_comments_for_repo(session, conn, repo, since_date)
+        n = fetch_review_comments_for_repo(session, conn, repo, since_date, args.max_pages or None)
         total += n
 
     print(f"\n{'='*60}")

@@ -21,8 +21,10 @@ import json
 import os
 import sys
 import signal
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Schema version — bump when DB schema changes in incompatible ways.
 # --update refuses to run against a different version; use --reset to rebuild.
@@ -40,7 +42,7 @@ REPOS = [
 ]
 
 DEFAULT_DB = "pr-dashboard.db"
-REQUEST_DELAY = 0.5  # seconds between requests (conservative; ~7200 req/hr headroom)
+REQUEST_DELAY = 0.1  # seconds between requests (~36k req/hr theoretical max; still bounded by API limits/retries)
 
 # Graceful shutdown flag
 _shutdown_requested = False
@@ -98,6 +100,7 @@ def init_db(db_path):
             labels TEXT,
             author TEXT,
             merged_by TEXT,
+            merged_by_checked INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (repo, number)
         );
 
@@ -117,11 +120,18 @@ def init_db(db_path):
         CREATE INDEX IF NOT EXISTS idx_items_created ON items(repo, created_at);
     """)
     # Migration: add columns if they don't exist (for DBs created before this change)
-    for col in ("author", "merged_by"):
+    for col in ("author", "merged_by", "merged_by_checked"):
         try:
-            conn.execute(f"ALTER TABLE items ADD COLUMN {col} TEXT")
+            col_type = "INTEGER NOT NULL DEFAULT 0" if col == "merged_by_checked" else "TEXT"
+            conn.execute(f"ALTER TABLE items ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
             pass  # column already exists
+    conn.execute("UPDATE items SET merged_by = NULL, merged_by_checked = 1 WHERE merged_by = ''")
+    conn.execute(
+        "UPDATE items SET merged_by_checked = CASE "
+        "WHEN merged_by IS NOT NULL THEN 1 "
+        "ELSE COALESCE(merged_by_checked, 0) END"
+    )
     # Migration: add sync_started_at to fetch_progress
     try:
         conn.execute("ALTER TABLE fetch_progress ADD COLUMN sync_started_at TEXT")
@@ -171,14 +181,35 @@ def fetch_page(session, url, params, max_retries=5):
         if _shutdown_requested:
             return None
 
+        stop_heartbeat = threading.Event()
+        parsed = urlparse(url)
+        target = parsed.path.rsplit("/", 1)[-1]
+        page = params.get("page")
+        since = params.get("since")
+        detail = []
+        if page:
+            detail.append(f"page={page}")
+        if since:
+            detail.append(f"since={since}")
+        suffix = f" ({', '.join(detail)})" if detail else ""
+
+        def heartbeat():
+            while not stop_heartbeat.wait(30):
+                print(f"  Waiting on {target}{suffix}...", flush=True)
+
+        ticker = threading.Thread(target=heartbeat, daemon=True)
+        ticker.start()
         try:
             resp = session.get(url, params=params, timeout=30)
         except req.exceptions.RequestException as e:
+            stop_heartbeat.set()
             wait = min(4 ** attempt, 120)
             print(f"  Network error: {e}")
             print(f"  Retry {attempt + 1}/{max_retries} in {wait}s...")
             time.sleep(wait)
             continue
+        finally:
+            stop_heartbeat.set()
 
         remaining, reset_ts = check_rate_limit(resp)
 
@@ -371,8 +402,8 @@ def save_checkpoint(conn, repo, item_type, page, items_fetched, status,
 UPSERT_SQL = (
     "INSERT INTO items "
     "(repo, number, created_at, closed_at, state, is_pull_request, "
-    "merged_at, labels, author, merged_by) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+    "merged_at, labels, author, merged_by, merged_by_checked) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
     "ON CONFLICT(repo, number) DO UPDATE SET "
     # Prefer existing created_at — avoids NULL overwrites from partial API responses
     "  created_at      = COALESCE(items.created_at, excluded.created_at), "
@@ -385,7 +416,11 @@ UPSERT_SQL = (
     # Prefer existing author — set once, may have been enriched by fetch_issue_authors.py
     "  author          = COALESCE(items.author, excluded.author), "
     # Prefer new merged_by — may arrive later from hydration or fetch_mergers.py
-    "  merged_by       = COALESCE(excluded.merged_by, items.merged_by)"
+    "  merged_by       = COALESCE(excluded.merged_by, items.merged_by), "
+    "  merged_by_checked = CASE "
+    "    WHEN excluded.merged_by IS NOT NULL THEN 1 "
+    "    ELSE items.merged_by_checked "
+    "  END"
 )
 
 
@@ -411,10 +446,11 @@ def parse_item(repo, item, is_pr):
         labels,
         author,
         merged_by_login,
+        1 if merged_by_login else 0,
     )
 
 
-def update_repo(conn, session, repo, request_delay):
+def update_repo(conn, session, repo, request_delay, max_advance_days=0):
     """
     Incremental update for a completed repo using /issues?since=.
 
@@ -445,10 +481,18 @@ def update_repo(conn, session, repo, request_delay):
         return None
 
     oldest_watermark = min(watermarks)
-    since_dt = datetime.fromisoformat(oldest_watermark.replace("Z", "+00:00")) - timedelta(days=2)
+    watermark_dt = datetime.fromisoformat(oldest_watermark.replace("Z", "+00:00"))
+    since_dt = watermark_dt - timedelta(days=2)
     since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"  Watermark: {oldest_watermark}")
-    print(f"  Fetching changes since: {since_str} (2-day overlap)")
+    if max_advance_days and max_advance_days > 0:
+        cap_end_dt = min(datetime.now(timezone.utc), watermark_dt + timedelta(days=max_advance_days))
+    else:
+        cap_end_dt = datetime.now(timezone.utc)
+    cap_end_str = cap_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"  Watermark: {oldest_watermark}", flush=True)
+    print(f"  Fetching changes since: {since_str} (2-day overlap)", flush=True)
+    if max_advance_days and max_advance_days > 0:
+        print(f"  Capped advance    : {cap_end_str} (+{max_advance_days} day window or now)", flush=True)
 
     # Fetch all changed items via /issues?since=
     # Use Link header pagination (not page numbers) to handle large result sets.
@@ -464,8 +508,10 @@ def update_repo(conn, session, repo, request_delay):
     page = 0
     issues_updated = 0
     prs_to_hydrate = set()
+    capped = False
 
     while not _shutdown_requested:
+        print(f"  [{repo}] fetching issue/PR updates page {page + 1}...", flush=True)
         resp = fetch_page(session, next_url, next_params)
         if resp is None:
             return None
@@ -477,6 +523,13 @@ def update_repo(conn, session, repo, request_delay):
         page += 1
         batch = []
         for item in data:
+            item_updated_at = item.get("updated_at") or ""
+            if not item_updated_at:
+                print("  WARNING: item missing updated_at; aborting repo update", flush=True)
+                return None
+            if max_advance_days and max_advance_days > 0 and item_updated_at > cap_end_str:
+                capped = True
+                break
             is_pr = "pull_request" in item
             if is_pr:
                 # Check if we need to hydrate this PR
@@ -500,14 +553,17 @@ def update_repo(conn, session, repo, request_delay):
                 batch.append(parse_item(repo, item, is_pr=False))
                 issues_updated += 1
 
+        if capped:
+            print(f"  Reached cap at updated_at {item_updated_at}; deferring newer items to the next run", flush=True)
+
         if batch:
             conn.executemany(UPSERT_SQL, batch)
             conn.commit()
 
-        if page == 1 or page % 10 == 0:
+        if page == 1 or page % 2 == 0:
             ts = datetime.now().strftime("%H:%M:%S")
             print(f"  [{ts}] page {page}: {issues_updated} issues, "
-                  f"{len(prs_to_hydrate)} PRs queued for hydration")
+                  f"{len(prs_to_hydrate)} PRs queued for hydration", flush=True)
 
         # Follow Link header for next page (cursor-based pagination)
         link_header = resp.headers.get("Link", "")
@@ -517,7 +573,7 @@ def update_repo(conn, session, repo, request_delay):
                 next_link = part.split(";")[0].strip().strip("<>")
                 break
 
-        if not next_link or len(data) < 100:
+        if capped or not next_link or len(data) < 100:
             break
 
         next_url = next_link
@@ -531,12 +587,14 @@ def update_repo(conn, session, repo, request_delay):
     prs_updated = 0
     prs_to_hydrate = sorted(prs_to_hydrate)
     if prs_to_hydrate:
-        print(f"  Hydrating {len(prs_to_hydrate)} PRs...")
+        print(f"  Hydrating {len(prs_to_hydrate)} PRs...", flush=True)
         for i, number in enumerate(prs_to_hydrate):
             if _shutdown_requested:
                 return None
 
             pr_url = f"https://api.github.com/repos/{owner}/{name}/pulls/{number}"
+            if i == 0 or (i + 1) % 25 == 0:
+                print(f"  [{repo}] hydrating PR {i + 1}/{len(prs_to_hydrate)}...", flush=True)
             resp = fetch_page(session, pr_url, {})
             if resp is None:
                 print(f"  WARNING: Failed to hydrate PR #{number}, skipping")
@@ -547,16 +605,26 @@ def update_repo(conn, session, repo, request_delay):
             conn.execute(UPSERT_SQL, row)
             prs_updated += 1
 
-            if (i + 1) % 50 == 0:
+            if (i + 1) % 10 == 0:
                 conn.commit()
                 ts = datetime.now().strftime("%H:%M:%S")
-                print(f"  [{ts}] hydrated {i + 1}/{len(prs_to_hydrate)} PRs")
+                print(f"  [{ts}] hydrated {i + 1}/{len(prs_to_hydrate)} PRs", flush=True)
 
             time.sleep(request_delay)
 
         conn.commit()
 
-    print(f"  Updated: {issues_updated} issues, {prs_updated} PRs")
+    if capped:
+        print(f"  Capped update complete; advancing watermark to {cap_end_str}")
+    advance_to = cap_end_str if capped else datetime.now(timezone.utc).isoformat()
+    for item_type in ("issue", "pr"):
+        conn.execute(
+            "UPDATE fetch_progress SET sync_started_at = ? WHERE repo = ? AND item_type = ?",
+            (advance_to, repo, item_type),
+        )
+    conn.commit()
+
+    print(f"  Updated: {issues_updated} issues, {prs_updated} PRs", flush=True)
     return issues_updated, prs_updated
 
 
@@ -569,7 +637,7 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
     individually to populate the field.
 
     PRs where GitHub genuinely has no merged_by (e.g., very old PRs) are
-    marked with merged_by='' so future --hydrate runs skip them.
+    marked with merged_by_checked=1 so future --hydrate runs skip them.
 
     Returns the number of PRs hydrated, 0 if there is nothing to hydrate,
     or None if hydration stops early due to interruption or too many
@@ -579,17 +647,17 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
         start_time = time.time()
     owner, name = repo.split("/")
 
-    # Skip PRs previously checked where GitHub has no merged_by (marked as '')
+    # Skip PRs previously checked where GitHub has no merged_by.
     rows = conn.execute(
         "SELECT number FROM items "
         "WHERE repo = ? AND is_pull_request = 1 AND merged_at IS NOT NULL "
-        "AND merged_by IS NULL ORDER BY number",
+        "AND merged_by_checked = 0 ORDER BY number",
         (repo,)
     ).fetchall()
 
     total = len(rows)
     if total == 0:
-        print(f"  No merged PRs with NULL merged_by — nothing to hydrate")
+        print(f"  No merged PRs still needing merged_by — nothing to hydrate")
         return 0
 
     print(f"  {total:,} merged PRs need merged_by hydration")
@@ -628,17 +696,14 @@ def hydrate_merged_by(conn, session, repo, request_delay, start_time=None):
                     continue
                 raise
 
-        # If GitHub truly has no merged_by, mark as '' so future --hydrate
-        # runs skip this PR instead of re-fetching it every time.
-        # Note: '' is used as a "checked, no value" sentinel. fetch_mergers.py
-        # also skips rows where merged_by = '', so once marked, these PRs won't
-        # be re-checked unless the sentinel is manually cleared.
+        # If GitHub truly has no merged_by, mark the row as checked so future
+        # hydrate runs skip it instead of re-fetching it every time.
         if merged_by_val is None:
             for _attempt in range(5):
                 try:
                     conn.execute(
-                        "UPDATE items SET merged_by = '' "
-                        "WHERE repo = ? AND number = ? AND merged_by IS NULL",
+                        "UPDATE items SET merged_by_checked = 1 "
+                        "WHERE repo = ? AND number = ? AND merged_by_checked = 0",
                         (repo, number)
                     )
                     break
@@ -740,6 +805,10 @@ def main():
     parser.add_argument(
         "--update", action="store_true",
         help="Incremental update: fetch only items changed since last sync (~5-10 min)"
+    )
+    parser.add_argument(
+        "--update-window-days", type=int, default=0,
+        help="Limit --update to at most N days beyond the watermark (0 = until now)"
     )
     parser.add_argument(
         "--hydrate", action="store_true",
@@ -850,8 +919,9 @@ def main():
             print(f"\n{'='*60}")
             print(f"[{i+1}/{len(repos)}] {repo} (update)")
             print(f"{'='*60}")
+            print(f"  Starting incremental update for {repo}", flush=True)
 
-            result = update_repo(conn, session, repo, args.delay)
+            result = update_repo(conn, session, repo, args.delay, args.update_window_days)
             if result is None:
                 if _shutdown_requested:
                     any_failed = True
@@ -859,20 +929,8 @@ def main():
                 # Distinguish "skipped (not complete)" from "failed"
                 # update_repo prints the reason; either way don't advance watermark
                 any_failed = True
-
-        # Only persist watermark if no repos failed/were interrupted
-        if not any_failed:
-            for repo in repos:
-                for item_type in ("issue", "pr"):
-                    conn.execute(
-                        "UPDATE fetch_progress SET sync_started_at = ? "
-                        "WHERE repo = ? AND item_type = ?",
-                        (sync_started_at, repo, item_type)
-                    )
-            conn.commit()
-            print(f"\n  Watermark advanced to {sync_started_at}")
-        else:
-            print(f"\n  Watermark NOT advanced (incomplete or failed run)")
+        if any_failed:
+            print(f"\n  One or more repos failed; successful repos kept their own updated watermarks")
     else:
         # --- Full fetch mode ---
         for i, repo in enumerate(repos):
@@ -882,6 +940,7 @@ def main():
             print(f"\n{'='*60}")
             print(f"[{i+1}/{len(repos)}] {repo}")
             print(f"{'='*60}")
+            print(f"  Starting full fetch for {repo}", flush=True)
 
             print(f"\n  --- Pull Requests ---")
             pr_count = fetch_items(conn, session, repo, "pr", args.delay)

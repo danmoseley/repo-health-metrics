@@ -60,6 +60,24 @@ AUX_TABLES = [
         ["repo", "number", "last_fetched_at", "is_complete"],
     ),
     (
+        "fetch_progress",
+        "data/fetch_progress.csv",
+        """CREATE TABLE IF NOT EXISTS fetch_progress (
+            repo TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            last_page INTEGER NOT NULL DEFAULT 0,
+            items_fetched INTEGER NOT NULL DEFAULT 0,
+            total_expected INTEGER,
+            updated_at TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            sync_started_at TEXT,
+            next_url TEXT,
+            PRIMARY KEY (repo, item_type)
+        );""",
+        ["repo", "item_type", "last_page", "items_fetched", "total_expected",
+         "updated_at", "status", "sync_started_at", "next_url"],
+    ),
+    (
         "pr_reviews",
         "data/pr_reviews.csv.gz",
         """CREATE TABLE IF NOT EXISTS pr_reviews (
@@ -223,6 +241,7 @@ def main():
             labels TEXT,
             author TEXT,
             merged_by TEXT,
+            merged_by_checked INTEGER NOT NULL DEFAULT 0,
             copilot_requester TEXT,
             copilot_trailer INTEGER,
             title TEXT,
@@ -248,8 +267,8 @@ def main():
     # Column list must match the CREATE TABLE above — update both together
     ITEMS_COLUMNS = [
         "repo", "number", "created_at", "closed_at", "state", "is_pull_request",
-        "merged_at", "labels", "author", "merged_by", "copilot_requester", "copilot_trailer",
-        "title",
+        "merged_at", "labels", "author", "merged_by", "merged_by_checked",
+        "copilot_requester", "copilot_trailer", "title",
     ]
     col_list = ",".join(ITEMS_COLUMNS)
     placeholders = ",".join("?" * len(ITEMS_COLUMNS))
@@ -259,13 +278,21 @@ def main():
     count = 0
     with gzip.open(csv_path, "rt", newline="") as f:
         reader = csv.reader(f)
-        next(reader)  # skip header
+        header = next(reader)  # skip header
+        header_index = {name: i for i, name in enumerate(header)}
+        has_merged_by_checked = "merged_by_checked" in header_index
         batch = []
         for row in reader:
             row = nullify(row)
-            while len(row) < len(ITEMS_COLUMNS):
-                row.append(None)
-            batch.append(row[:len(ITEMS_COLUMNS)])
+            values = []
+            for column in ITEMS_COLUMNS:
+                idx = header_index.get(column)
+                values.append(row[idx] if idx is not None and idx < len(row) else None)
+            if not has_merged_by_checked:
+                values[10] = 1 if values[9] not in (None, "") else 0
+            elif values[10] is None:
+                values[10] = 0
+            batch.append(values)
             if len(batch) >= 10000:
                 conn.executemany(insert_sql, batch)
                 count += len(batch)
@@ -278,11 +305,18 @@ def main():
 
     conn.commit()
 
+    if not has_merged_by_checked:
+        conn.execute(
+            "UPDATE items SET merged_by_checked = CASE "
+            "WHEN merged_by IS NOT NULL AND merged_by != '' THEN 1 "
+            "ELSE 0 END"
+        )
+        conn.commit()
+
     # ─── Auxiliary tables (preserved data: comments, pushes, etc.) ───
     load_aux_tables(conn)
 
-    # Mark all repos as complete in fetch_progress
-    # But only mark a type as complete if we actually have items of that type
+    # Backfill fetch_progress only for repos that do not already have restored state.
     repos = conn.execute("SELECT DISTINCT repo FROM items").fetchall()
     for (repo,) in repos:
         for item_type in ("issue", "pr"):
@@ -292,14 +326,13 @@ def main():
                 (repo, is_pr),
             ).fetchone()[0]
             if n > 0:
-                # Derive watermark from most recent item timestamp
                 watermark = conn.execute(
                     "SELECT max(coalesce(closed_at, created_at)) FROM items "
                     "WHERE repo=? AND is_pull_request=?",
                     (repo, is_pr),
                 ).fetchone()[0]
                 conn.execute(
-                    "INSERT OR REPLACE INTO fetch_progress "
+                    "INSERT OR IGNORE INTO fetch_progress "
                     "(repo, item_type, last_page, items_fetched, status, sync_started_at) "
                     "VALUES (?, ?, 0, ?, 'complete', ?)",
                     (repo, item_type, n, watermark),
