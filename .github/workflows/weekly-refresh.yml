@@ -268,12 +268,18 @@ jobs:
       - name: Update HTML timestamp
         run: python update_html_timestamp.py
 
-      - name: Create or update PR
+      - name: Verify refreshed outputs
+        run: python verify_refresh_outputs.py --baseline-ref HEAD --repos ${{ env.REPOS }}
+
+      - name: Create, update, and auto-merge PR
         if: ${{ github.ref_name == 'master' }}
         run: |
+          set -euo pipefail
           BRANCH="auto/weekly-refresh"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$BRANCH"
 
           # Check for changes (including deletions)
           git add -A -- data/ charts/
@@ -282,28 +288,53 @@ jobs:
             exit 0
           fi
 
-          # Commit and push
-          git checkout -B "$BRANCH"
           DATE=$(date -u +%Y-%m-%d)
-          git commit -m "Weekly data refresh ($DATE)"
-          git push -f origin "$BRANCH"
+          TITLE="Weekly data refresh ($DATE)"
+          BODY_FILE=$(mktemp)
+          trap 'rm -f "$BODY_FILE"' EXIT
+          printf '%s\n' \
+            '> [!NOTE]' \
+            '> This pull request description was generated with AI/Copilot assistance.' \
+            '' \
+            'Automated refresh of item data, review metrics, and charts.' \
+            '' \
+            'The workflow already ran sanity checks over the refreshed CSVs and chart outputs before opening this PR.' \
+            'If the branch still satisfies repository merge policy, the workflow will squash-merge this PR automatically.' \
+            > "$BODY_FILE"
 
-          # Create or update PR
-          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "Updated existing PR #$EXISTING"
+          # Commit and push
+          git commit -m "$TITLE"
+          # Fetch the existing refresh branch (if any) so --force-with-lease has
+          # an up-to-date origin ref to compare against; otherwise the lease
+          # check is a no-op.
+          git fetch origin "$BRANCH" || true
+          git push --force-with-lease origin "$BRANCH"
+
+          # Create or update the single refresh PR
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number // empty')
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" --title "$TITLE" --body-file "$BODY_FILE"
+            echo "Updated existing PR #$PR_NUMBER"
           else
-            BODY=$(cat <<'EOF'
-          Automated weekly refresh of item data, review metrics, and charts.
-
-          This PR was created by the [weekly-refresh workflow]. Review the chart changes and merge when satisfied.
-          EOF
-            )
-            gh pr create \
-              --title "Weekly data refresh ($DATE)" \
-              --body "$BODY" \
+            PR_URL=$(gh pr create \
+              --title "$TITLE" \
+              --body-file "$BODY_FILE" \
               --head "$BRANCH" \
-              --base master
+              --base master)
+            PR_NUMBER=${PR_URL##*/}
+          fi
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "Failed to determine refresh PR number."
+            exit 1
+          fi
+
+          # Enable auto-merge so GitHub merges as soon as repo policy is satisfied
+          # (immediately if no required checks/reviews, otherwise when they pass).
+          # Don't fail the refresh job if auto-merge can't be enabled (e.g. policy
+          # change) — leave the PR open for manual review instead.
+          if ! gh pr merge "$PR_NUMBER" --auto --squash; then
+            echo "::warning::Failed to enable auto-merge on PR #$PR_NUMBER; PR remains open for manual merge."
           fi
 
   notify-failure:
