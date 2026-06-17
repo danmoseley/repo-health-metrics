@@ -18,11 +18,13 @@ def update_timestamp(html_path):
     # Check if data-updated attribute already exists
     if 'data-updated=' in html_content:
         # Update existing timestamp
-        html_content = re.sub(
+        html_content, replacements = re.subn(
             r'data-updated="[^"]*"',
             f'data-updated="{timestamp}"',
             html_content
         )
+        if replacements == 0:
+            raise RuntimeError(f"Failed to update data-updated attribute in {html_path}")
     else:
         # Add data-updated attribute to the first attribution paragraph
         # We need to add it to just the first occurrence
@@ -32,12 +34,14 @@ def update_timestamp(html_path):
                 return match.group(0)
             return match.group(1) + f' data-updated="{timestamp}"' + match.group(2)
         
-        html_content = re.sub(
+        html_content, replacements = re.subn(
             r'(<p class="attribution")([^>]*>)',
             add_data_attr,
             html_content,
             count=1  # Only replace the first occurrence
         )
+        if replacements == 0:
+            raise RuntimeError(f"Failed to add data-updated attribute in {html_path}")
     
     # Write the updated HTML
     with open(html_path, 'w', encoding='utf-8') as f:
