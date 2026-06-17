@@ -2,8 +2,8 @@ name: Weekly Data Refresh
 
 on:
   schedule:
-    # Monday 06:00 UTC
-    - cron: '17 3 * * 1'
+    # Daily 03:17 UTC
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       refresh_only:
