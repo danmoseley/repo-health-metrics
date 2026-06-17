@@ -268,12 +268,18 @@ jobs:
       - name: Update HTML timestamp
         run: python update_html_timestamp.py
 
-      - name: Create or update PR
+      - name: Verify refreshed outputs
+        run: python verify_refresh_outputs.py --baseline-ref HEAD --repos ${{ env.REPOS }}
+
+      - name: Create, update, and auto-merge PR
         if: ${{ github.ref_name == 'master' }}
         run: |
+          set -euo pipefail
           BRANCH="auto/weekly-refresh"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$BRANCH"
 
           # Check for changes (including deletions)
           git add -A -- data/ charts/
@@ -282,29 +288,61 @@ jobs:
             exit 0
           fi
 
-          # Commit and push
-          git checkout -B "$BRANCH"
           DATE=$(date -u +%Y-%m-%d)
-          git commit -m "Weekly data refresh ($DATE)"
+          TITLE="Weekly data refresh ($DATE)"
+          BODY_FILE=$(mktemp)
+          trap 'rm -f "$BODY_FILE"' EXIT
+          printf '%s\n' \
+            '> [!NOTE]' \
+            '> This pull request description was generated with AI/Copilot assistance.' \
+            '' \
+            'Automated refresh of item data, review metrics, and charts.' \
+            '' \
+            'The workflow already ran sanity checks over the refreshed CSVs and chart outputs before opening this PR.' \
+            'If the branch still satisfies repository merge policy, the workflow will squash-merge this PR automatically.' \
+            > "$BODY_FILE"
+
+          # Commit and push
+          git commit -m "$TITLE"
           git push -f origin "$BRANCH"
 
-          # Create or update PR
-          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "Updated existing PR #$EXISTING"
+          # Create or update the single refresh PR
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number // empty')
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" --title "$TITLE" --body-file "$BODY_FILE"
+            echo "Updated existing PR #$PR_NUMBER"
           else
-            BODY=$(cat <<'EOF'
-          Automated weekly refresh of item data, review metrics, and charts.
-
-          This PR was created by the [weekly-refresh workflow]. Review the chart changes and merge when satisfied.
-          EOF
-            )
-            gh pr create \
-              --title "Weekly data refresh ($DATE)" \
-              --body "$BODY" \
+            PR_URL=$(gh pr create \
+              --title "$TITLE" \
+              --body-file "$BODY_FILE" \
               --head "$BRANCH" \
-              --base master
+              --base master)
+            PR_NUMBER=${PR_URL##*/}
           fi
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "Failed to determine refresh PR number."
+            exit 1
+          fi
+
+          for _ in $(seq 1 12); do
+            MERGE_STATE=$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)
+            if [ "$MERGE_STATE" != "UNKNOWN" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          case "$MERGE_STATE" in
+            CLEAN|HAS_HOOKS|UNSTABLE)
+              ;;
+            *)
+              echo "PR merge state is not ready for auto-merge: $MERGE_STATE"
+              exit 1
+              ;;
+          esac
+
+          gh pr merge "$PR_NUMBER" --squash --delete-branch=false
 
   notify-failure:
     if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true') && always() && failure() }}
