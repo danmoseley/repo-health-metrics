@@ -304,6 +304,10 @@ jobs:
 
           # Commit and push
           git commit -m "$TITLE"
+          # Fetch the existing refresh branch (if any) so --force-with-lease has
+          # an up-to-date origin ref to compare against; otherwise the lease
+          # check is a no-op.
+          git fetch origin "$BRANCH" || true
           git push --force-with-lease origin "$BRANCH"
 
           # Create or update the single refresh PR
