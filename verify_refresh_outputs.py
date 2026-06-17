@@ -104,9 +104,16 @@ def list_tracked_files(ref: str, prefix: str) -> list[str]:
     result = subprocess.run(
         ["git", "ls-tree", "-r", "--name-only", ref, prefix],
         capture_output=True,
-        check=True,
+        check=False,
         text=True,
     )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        print(
+            f"Warning: could not list tracked files at {ref}:{prefix}"
+            + (f" ({stderr})" if stderr else "")
+        )
+        return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 

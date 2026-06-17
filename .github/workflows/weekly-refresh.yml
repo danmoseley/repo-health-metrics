@@ -331,7 +331,11 @@ jobs:
 
           # Enable auto-merge so GitHub merges as soon as repo policy is satisfied
           # (immediately if no required checks/reviews, otherwise when they pass).
-          gh pr merge "$PR_NUMBER" --auto --squash
+          # Don't fail the refresh job if auto-merge can't be enabled (e.g. policy
+          # change) — leave the PR open for manual review instead.
+          if ! gh pr merge "$PR_NUMBER" --auto --squash; then
+            echo "::warning::Failed to enable auto-merge on PR #$PR_NUMBER; PR remains open for manual merge."
+          fi
 
   notify-failure:
     if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true') && always() && failure() }}
