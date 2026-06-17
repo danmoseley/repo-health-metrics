@@ -175,6 +175,10 @@ def compare_progress_csv(baseline_ref: str, repo_relative_path: str, timestamp_f
     current_dt = parse_iso_timestamp(current_max)
     if baseline_dt and current_dt and current_dt < baseline_dt:
         problems.append(f"{repo_relative_path} max {timestamp_field} regressed: {baseline_max} -> {current_max}")
+    elif baseline_dt and not current_dt:
+        problems.append(
+            f"{repo_relative_path} lost all parseable {timestamp_field} values (baseline max {baseline_max})"
+        )
 
     return problems
 
