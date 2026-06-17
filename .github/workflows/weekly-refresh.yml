@@ -304,7 +304,7 @@ jobs:
 
           # Commit and push
           git commit -m "$TITLE"
-          git push -f origin "$BRANCH"
+          git push --force-with-lease origin "$BRANCH"
 
           # Create or update the single refresh PR
           PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number // empty')
@@ -325,24 +325,9 @@ jobs:
             exit 1
           fi
 
-          for _ in $(seq 1 12); do
-            MERGE_STATE=$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)
-            if [ "$MERGE_STATE" != "UNKNOWN" ]; then
-              break
-            fi
-            sleep 5
-          done
-
-          case "$MERGE_STATE" in
-            CLEAN|HAS_HOOKS)
-              ;;
-            *)
-              echo "PR merge state is not ready for auto-merge: $MERGE_STATE"
-              exit 1
-              ;;
-          esac
-
-          gh pr merge "$PR_NUMBER" --squash
+          # Enable auto-merge so GitHub merges as soon as repo policy is satisfied
+          # (immediately if no required checks/reviews, otherwise when they pass).
+          gh pr merge "$PR_NUMBER" --auto --squash
 
   notify-failure:
     if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.refresh_only != 'true') && always() && failure() }}

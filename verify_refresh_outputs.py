@@ -37,7 +37,7 @@ def open_csv_from_git(ref: str, repo_relative_path: str) -> Optional[io.TextIOBa
         return None
     if repo_relative_path.endswith(".gz"):
         return io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(raw)), encoding="utf-8", newline="")
-    return io.StringIO(raw.decode("utf-8"))
+    return io.StringIO(raw.decode("utf-8"), newline="")
 
 
 def open_csv_from_worktree(path: Path) -> io.TextIOBase:
