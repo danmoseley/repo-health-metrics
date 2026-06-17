@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 TIMESTAMP_ATTR = "data-gathered-up-to"
+SUBTITLE_RE = re.compile(r'<p class="subtitle">([^<]+)</p>')
 
 
 def parse_iso_timestamp(value):
@@ -23,17 +24,42 @@ def parse_iso_timestamp(value):
     return parsed.astimezone(timezone.utc)
 
 
-def get_data_gathered_up_to(data_path):
-    """Return the latest successful fetch watermark from fetch_progress.csv."""
-    latest = None
+def get_displayed_repos(html_content):
+    """Return the repos listed in the page subtitle."""
+    match = SUBTITLE_RE.search(html_content)
+    if not match:
+        raise RuntimeError("Failed to find the repo subtitle in charts/index.html")
+    return {repo.strip() for repo in match.group(1).split("·") if repo.strip()}
+
+
+def get_data_gathered_up_to(data_path, html_path):
+    """Return the least-fresh complete fetch watermark for repos shown on the page."""
+    with open(html_path, "r", encoding="utf-8") as f:
+        displayed_repos = get_displayed_repos(f.read())
+
+    oldest = None
+    matched_repos = set()
     with open(data_path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
+            if row.get("status") != "complete":
+                continue
+            repo = row.get("repo", "")
+            if repo not in displayed_repos:
+                continue
             parsed = parse_iso_timestamp(row.get("sync_started_at", ""))
-            if parsed is not None and (latest is None or parsed > latest):
-                latest = parsed
-    if latest is None:
-        raise RuntimeError(f"Failed to find a parseable sync_started_at in {data_path}")
-    return latest.isoformat()
+            if parsed is None:
+                continue
+            matched_repos.add(repo)
+            if oldest is None or parsed < oldest:
+                oldest = parsed
+
+    missing_repos = displayed_repos - matched_repos
+    if missing_repos:
+        missing = ", ".join(sorted(missing_repos))
+        raise RuntimeError(f"Missing complete sync_started_at data for displayed repos: {missing}")
+    if oldest is None:
+        raise RuntimeError(f"Failed to find a parseable complete sync_started_at in {data_path}")
+    return oldest.isoformat()
 
 
 def update_timestamp(html_path, data_timestamp):
@@ -83,4 +109,4 @@ if __name__ == "__main__":
     repo_root = Path(__file__).resolve().parent
     html_path = repo_root / "charts" / "index.html"
     data_path = repo_root / "data" / "fetch_progress.csv"
-    update_timestamp(html_path, get_data_gathered_up_to(data_path))
+    update_timestamp(html_path, get_data_gathered_up_to(data_path, html_path))
