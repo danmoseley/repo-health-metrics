@@ -1,54 +1,111 @@
 #!/usr/bin/env python3
-"""Update the last-updated timestamp in charts/index.html"""
+"""Update the data-freshness timestamp in charts/index.html"""
 
-import os
+import csv
 import re
+from pathlib import Path
 from datetime import datetime, timezone
 
-def update_timestamp(html_path):
-    """Update the timestamp data attribute in the HTML file"""
-    
+TIMESTAMP_ATTR = "data-gathered-up-to"
+SUBTITLE_RE = re.compile(r'<p class="subtitle">([^<]+)</p>')
+
+
+def parse_iso_timestamp(value):
+    """Parse an ISO-8601 timestamp into a timezone-aware datetime."""
+    if not value:
+        return None
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def get_displayed_repos(html_content):
+    """Return the repos listed in the page subtitle."""
+    match = SUBTITLE_RE.search(html_content)
+    if not match:
+        raise RuntimeError("Failed to find the repo subtitle in charts/index.html")
+    return {repo.strip() for repo in match.group(1).split("·") if repo.strip()}
+
+
+def get_data_gathered_up_to(data_path, html_path):
+    """Return the least-fresh complete fetch watermark for repos shown on the page."""
+    with open(html_path, "r", encoding="utf-8") as f:
+        displayed_repos = get_displayed_repos(f.read())
+
+    latest_by_repo = {}
+    with open(data_path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            if row.get("status") != "complete":
+                continue
+            repo = row.get("repo", "")
+            if repo not in displayed_repos:
+                continue
+            parsed = parse_iso_timestamp(row.get("sync_started_at", ""))
+            if parsed is None:
+                continue
+            current = latest_by_repo.get(repo)
+            if current is None or parsed > current:
+                latest_by_repo[repo] = parsed
+
+    missing_repos = displayed_repos - latest_by_repo.keys()
+    if missing_repos:
+        missing = ", ".join(sorted(missing_repos))
+        raise RuntimeError(f"Missing complete sync_started_at data for displayed repos: {missing}")
+    if not latest_by_repo:
+        raise RuntimeError(f"Failed to find a parseable complete sync_started_at in {data_path}")
+    return min(latest_by_repo.values()).isoformat()
+
+
+def update_timestamp(html_path, data_timestamp):
+    """Update the data freshness attribute in the HTML file."""
+
     # Read the current HTML
-    with open(html_path, 'r', encoding='utf-8') as f:
+    with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
-    
-    # Generate ISO 8601 timestamp in UTC
-    timestamp = datetime.now(timezone.utc).isoformat()
-    
-    # Check if data-updated attribute already exists
-    if 'data-updated=' in html_content:
-        # Update existing timestamp
+
+    if f'{TIMESTAMP_ATTR}=' in html_content:
         html_content, replacements = re.subn(
-            r'data-updated="[^"]*"',
-            f'data-updated="{timestamp}"',
+            rf'{TIMESTAMP_ATTR}="[^"]*"',
+            f'{TIMESTAMP_ATTR}="{data_timestamp}"',
             html_content
         )
         if replacements == 0:
-            raise RuntimeError(f"Failed to update data-updated attribute in {html_path}")
+            raise RuntimeError(f"Failed to update {TIMESTAMP_ATTR} in {html_path}")
+    elif 'data-updated=' in html_content:
+        html_content, replacements = re.subn(
+            r'data-updated="[^"]*"',
+            f'{TIMESTAMP_ATTR}="{data_timestamp}"',
+            html_content
+        )
+        if replacements == 0:
+            raise RuntimeError(f"Failed to replace data-updated in {html_path}")
     else:
-        # Add data-updated attribute to the first attribution paragraph
-        # We need to add it to just the first occurrence
         def add_data_attr(match):
-            # Only add to paragraphs that don't already have data-updated
-            if 'data-updated' in match.group(0):
+            if TIMESTAMP_ATTR in match.group(0):
                 return match.group(0)
-            return match.group(1) + f' data-updated="{timestamp}"' + match.group(2)
-        
+            return match.group(1) + f' {TIMESTAMP_ATTR}="{data_timestamp}"' + match.group(2)
+
         html_content, replacements = re.subn(
             r'(<p class="attribution")([^>]*>)',
             add_data_attr,
             html_content,
-            count=1  # Only replace the first occurrence
+            count=1
         )
         if replacements == 0:
-            raise RuntimeError(f"Failed to add data-updated attribute in {html_path}")
-    
-    # Write the updated HTML
-    with open(html_path, 'w', encoding='utf-8') as f:
+            raise RuntimeError(f"Failed to add {TIMESTAMP_ATTR} in {html_path}")
+
+    with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
-    
-    print(f"Updated timestamp in {html_path} to {timestamp}")
+
+    print(f"Updated data freshness timestamp in {html_path} to {data_timestamp}")
 
 if __name__ == "__main__":
-    html_path = os.path.join(os.path.dirname(__file__), 'charts', 'index.html')
-    update_timestamp(html_path)
+    repo_root = Path(__file__).resolve().parent
+    html_path = repo_root / "charts" / "index.html"
+    data_path = repo_root / "data" / "fetch_progress.csv"
+    update_timestamp(html_path, get_data_gathered_up_to(data_path, html_path))
