@@ -266,6 +266,7 @@ jobs:
         run: python analyze.py
 
       - name: Create or update PR
+        if: ${{ github.ref_name == 'master' }}
         run: |
           BRANCH="auto/weekly-refresh"
           git config user.name "github-actions[bot]"
