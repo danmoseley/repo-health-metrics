@@ -16,8 +16,28 @@ import io
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
+
+
+def parse_iso_timestamp(value: str) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp into a tz-aware UTC datetime.
+
+    Tolerates the two variants this repo produces: a trailing 'Z' or an
+    explicit '+00:00' offset, with or without fractional seconds. Returns
+    None for empty/unparseable input so callers can skip rather than crash.
+    """
+    if not value:
+        return None
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def git_show_bytes(ref: str, repo_relative_path: str) -> Optional[bytes]:
@@ -48,25 +68,36 @@ def open_csv_from_worktree(path: Path) -> io.TextIOBase:
 
 def summarize_items(reader: csv.DictReader[str]) -> Tuple[int, Dict[str, str]]:
     total = 0
-    max_created_at_by_repo: Dict[str, str] = {}
+    max_by_repo: Dict[str, Tuple[datetime, str]] = {}
     for row in reader:
         total += 1
         repo = row.get("repo", "")
         created_at = row.get("created_at", "")
-        if repo and created_at and created_at > max_created_at_by_repo.get(repo, ""):
-            max_created_at_by_repo[repo] = created_at
-    return total, max_created_at_by_repo
+        if not repo or not created_at:
+            continue
+        parsed = parse_iso_timestamp(created_at)
+        if parsed is None:
+            continue
+        current = max_by_repo.get(repo)
+        if current is None or parsed > current[0]:
+            max_by_repo[repo] = (parsed, created_at)
+    return total, {repo: original for repo, (_, original) in max_by_repo.items()}
 
 
 def summarize_progress(reader: csv.DictReader[str], timestamp_field: str) -> Tuple[int, str]:
     total = 0
-    max_timestamp = ""
+    max_dt: Optional[datetime] = None
+    max_original = ""
     for row in reader:
         total += 1
         timestamp = row.get(timestamp_field, "")
-        if timestamp and timestamp > max_timestamp:
-            max_timestamp = timestamp
-    return total, max_timestamp
+        parsed = parse_iso_timestamp(timestamp)
+        if parsed is None:
+            continue
+        if max_dt is None or parsed > max_dt:
+            max_dt = parsed
+            max_original = timestamp
+    return total, max_original
 
 
 def list_tracked_files(ref: str, prefix: str) -> list[str]:
@@ -102,7 +133,9 @@ def compare_items(baseline_ref: str, repos: Iterable[str]) -> list[str]:
     for repo in repos:
         before = baseline_max.get(repo, "")
         after = current_max.get(repo, "")
-        if before and after and after < before:
+        before_dt = parse_iso_timestamp(before)
+        after_dt = parse_iso_timestamp(after)
+        if before_dt and after_dt and after_dt < before_dt:
             problems.append(f"{repo} max created_at regressed: {before} -> {after}")
         elif before and not after:
             problems.append(f"{repo} lost all items (baseline max created_at {before})")
@@ -131,7 +164,9 @@ def compare_progress_csv(baseline_ref: str, repo_relative_path: str, timestamp_f
     print(f"{repo_relative_path}: rows {baseline_total:,} -> {current_total:,}, max {timestamp_field} {baseline_max or '(none)'} -> {current_max or '(none)'}")
     if current_total < baseline_total:
         problems.append(f"{repo_relative_path} row count regressed: {baseline_total} -> {current_total}")
-    if baseline_max and current_max and current_max < baseline_max:
+    baseline_dt = parse_iso_timestamp(baseline_max)
+    current_dt = parse_iso_timestamp(current_max)
+    if baseline_dt and current_dt and current_dt < baseline_dt:
         problems.append(f"{repo_relative_path} max {timestamp_field} regressed: {baseline_max} -> {current_max}")
 
     return problems
@@ -139,14 +174,25 @@ def compare_progress_csv(baseline_ref: str, repo_relative_path: str, timestamp_f
 
 def compare_charts(baseline_ref: str) -> list[str]:
     problems: list[str] = []
-    tracked = list_tracked_files(baseline_ref, "charts")
-    if not tracked:
-        print("No baseline charts tracked; skipping chart-file comparison.")
+    tracked: set[str] = set(list_tracked_files(baseline_ref, "charts"))
+
+    # Also include chart files generated in this run that aren't tracked yet,
+    # so a freshly-added empty chart still trips the sanity check.
+    current: set[str] = set()
+    charts_dir = Path("charts")
+    if charts_dir.is_dir():
+        for path in charts_dir.rglob("*"):
+            if path.is_file():
+                current.add(path.as_posix())
+
+    files_to_check = tracked | current
+    if not files_to_check:
+        print("No chart files at baseline or in worktree; skipping chart-file comparison.")
         return problems
 
     missing = []
     empty = []
-    for repo_relative_path in tracked:
+    for repo_relative_path in sorted(files_to_check):
         current_path = Path(repo_relative_path)
         if not current_path.exists():
             missing.append(repo_relative_path)
@@ -155,7 +201,7 @@ def compare_charts(baseline_ref: str) -> list[str]:
         if size <= 0:
             empty.append(repo_relative_path)
 
-    print(f"charts tracked at baseline: {len(tracked)}")
+    print(f"charts tracked at baseline: {len(tracked)}, in worktree: {len(current)}")
     if missing:
         problems.append(f"Missing chart files: {', '.join(missing[:10])}")
     if empty:
