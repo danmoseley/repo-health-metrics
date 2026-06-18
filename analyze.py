@@ -4110,6 +4110,25 @@ def _set_review_month_zoom_xaxis(ax):
     ax.xaxis.set_minor_locator(mdates.DayLocator(interval=1))
 
 
+def _review_effective_today(all_items, month_zoom):
+    today = datetime.now().date()
+    if not month_zoom:
+        return today
+    latest_created = max(
+        (
+            parse_date(it.get("created_at"))
+            for items in all_items.values()
+            for it in items
+            if it.get("is_pr") and it.get("merged_at") and it.get("created_at")
+        ),
+        default=None,
+    )
+    if latest_created is None:
+        return today
+    # Keep the same "exclude partial today" behavior while anchoring to data freshness.
+    return min(today, latest_created + timedelta(days=1))
+
+
 def _review_bucket_date(d, month_zoom):
     return d if month_zoom else week_start(d)
 
@@ -4148,7 +4167,7 @@ def chart_review_churn_before_human(
     setup_axes(ax, title, "% of lines changed before human review")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4257,7 +4276,7 @@ def chart_review_copilot_comment_density(
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "Comments / 100 LOC")
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4375,7 +4394,7 @@ def chart_review_human_comments_comparison(
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "Human comments / PR")
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4472,7 +4491,7 @@ def chart_review_suggestion_rate(
     setup_axes(ax, title, "% with suggestions")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4589,7 +4608,7 @@ def chart_review_time_to_first_feedback(
     setup_axes(ax, title, "Hours")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4698,7 +4717,7 @@ def chart_review_copilot_to_human_approval(
     setup_axes(ax, title, "Hours")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4826,7 +4845,7 @@ def chart_review_human_participation(
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "Distinct reviewers / PR")
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
@@ -4952,7 +4971,7 @@ def chart_review_copilot_coverage(
     setup_axes(ax, title, "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
     last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
     step = timedelta(days=3 if month_zoom else 7)
