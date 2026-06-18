@@ -4409,7 +4409,7 @@ def chart_review_human_comments_comparison(
 def chart_review_suggestion_rate(
         all_items, review_data, output_dir, *,
         cutoff_days=365,
-        title="Copilot Review Suggestion Rate — % of Review Comments with Code Suggestions (4-week rolling)",
+        title="Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)",
         output_file="review_suggestion_rate.png",
         insight_lines=None,
         month_zoom=False):
@@ -5030,7 +5030,7 @@ def chart_review_suggestion_rate_last_month(all_items, review_data, output_dir):
     chart_review_suggestion_rate(
         all_items, review_data, output_dir,
         cutoff_days=35,
-        title="Copilot Review Suggestion Rate — Last Month (% with suggestions, 4-week rolling)",
+        title="Suggestion Rate — Last Month (% with suggestions, 4-week rolling)",
         output_file="review_suggestion_rate_last_month.png",
         month_zoom=True,
         insight_lines=[
