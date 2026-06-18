@@ -4104,9 +4104,65 @@ def _repos_with_copilot_activity(all_items, review_data):
 
 
 def _set_review_month_zoom_xaxis(ax):
+    # Dense weekly labels for short-window review charts.
     ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0, interval=1))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_minor_locator(mdates.DayLocator(interval=1))
+
+
+_REVIEW_LATEST_CREATED_CACHE = {"items": None, "latest_created": None}
+
+
+def _review_latest_created(all_items):
+    if _REVIEW_LATEST_CREATED_CACHE["items"] is all_items:
+        return _REVIEW_LATEST_CREATED_CACHE["latest_created"]
+
+    latest_created = None
+    for repo in REVIEW_CHART_REPOS:
+        items = all_items.get(repo)
+        if not items:
+            continue
+        for it in items:
+            if not it.get("is_pr") or not it.get("merged_at") or not it.get("created_at"):
+                continue
+            d = parse_date(it.get("created_at"))
+            if d is not None and (latest_created is None or d > latest_created):
+                latest_created = d
+    _REVIEW_LATEST_CREATED_CACHE["items"] = all_items
+    _REVIEW_LATEST_CREATED_CACHE["latest_created"] = latest_created
+    return latest_created
+
+
+def _review_effective_today(all_items, month_zoom):
+    today = datetime.now().date()
+    if not month_zoom:
+        return today
+    latest_created = _review_latest_created(all_items)
+    if latest_created is None:
+        return today
+    # Keep the same "exclude partial today" behavior while anchoring to data freshness.
+    return min(today, latest_created + timedelta(days=1))
+
+
+def _review_bucket_date(d, month_zoom):
+    return d if month_zoom else week_start(d)
+
+
+def _review_window_values(series_by_bucket, anchor, month_zoom):
+    vals = []
+    if month_zoom:
+        for k in range(28):
+            vals.extend(series_by_bucket.get(anchor - timedelta(days=k), []))
+    else:
+        for k in range(4):
+            vals.extend(series_by_bucket.get(anchor - timedelta(weeks=k), []))
+    return vals
+
+
+def _review_window_sum(series_by_bucket, anchor, month_zoom):
+    if month_zoom:
+        return sum(series_by_bucket.get(anchor - timedelta(days=k), 0) for k in range(28))
+    return sum(series_by_bucket.get(anchor - timedelta(weeks=k), 0) for k in range(4))
 
 
 def chart_review_churn_before_human(
@@ -4126,9 +4182,10 @@ def chart_review_churn_before_human(
     setup_axes(ax, title, "% of lines changed before human review")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     visible_data = []
     line_ends = []
@@ -4171,22 +4228,21 @@ def chart_review_churn_before_human(
 
             cd = parse_date(item["created_at"])
             if cd and cd >= cutoff:
-                ratio_by_week[week_start(cd)].append(pct_before)
+                ratio_by_week[_review_bucket_date(cd, month_zoom)].append(pct_before)
 
         if not ratio_by_week:
             continue
-        # Weekly P50 with 4-week rolling window
+        # P50 over a rolling 4-week window (evaluated weekly or every 3 days for month zoom)
         weeks_x, p50s = [], []
         w = max(min(ratio_by_week.keys()), cutoff)
-        w = week_start(w)
-        while w <= last_complete_week:
-            window_vals = []
-            for k in range(4):
-                window_vals.extend(ratio_by_week.get(w - timedelta(weeks=k), []))
+        if not month_zoom:
+            w = week_start(w)
+        while w <= last_complete:
+            window_vals = _review_window_values(ratio_by_week, w, month_zoom)
             if len(window_vals) >= 5:
                 weeks_x.append(w)
                 p50s.append(median(window_vals))
-            w += timedelta(weeks=1)
+            w += step
         if not weeks_x:
             continue
         ax.plot(weeks_x, p50s, color=get_color(repo), label=get_short(repo),
@@ -4235,9 +4291,10 @@ def chart_review_copilot_comment_density(
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "Comments / 100 LOC")
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     visible_data = []
     line_ends = []
@@ -4267,7 +4324,7 @@ def chart_review_copilot_comment_density(
             cd = parse_date(item["created_at"])
             if cd and cd >= cutoff:
                 density = len(copilot_comments) * 100.0 / loc
-                wk = week_start(cd)
+                wk = _review_bucket_date(cd, month_zoom)
                 density_by_week[wk].append(density)
                 combined_density_by_week[wk].append(density)
 
@@ -4275,15 +4332,14 @@ def chart_review_copilot_comment_density(
             continue
         weeks_x, means = [], []
         w = max(min(density_by_week.keys()), cutoff)
-        w = week_start(w)
-        while w <= last_complete_week:
-            window_vals = []
-            for k in range(4):
-                window_vals.extend(density_by_week.get(w - timedelta(weeks=k), []))
+        if not month_zoom:
+            w = week_start(w)
+        while w <= last_complete:
+            window_vals = _review_window_values(density_by_week, w, month_zoom)
             if len(window_vals) >= 5:
                 weeks_x.append(w)
                 means.append(sum(window_vals) / len(window_vals))
-            w += timedelta(weeks=1)
+            w += step
         if not weeks_x:
             continue
         ax.plot(weeks_x, means, color=get_color(repo), label=get_short(repo),
@@ -4300,15 +4356,14 @@ def chart_review_copilot_comment_density(
     import numpy as np
     combined_x, combined_y = [], []
     w = min(combined_density_by_week.keys()) if combined_density_by_week else cutoff
-    w = week_start(w)
-    while w <= last_complete_week:
-        window_vals = []
-        for k in range(4):
-            window_vals.extend(combined_density_by_week.get(w - timedelta(weeks=k), []))
+    if not month_zoom:
+        w = week_start(w)
+    while w <= last_complete:
+        window_vals = _review_window_values(combined_density_by_week, w, month_zoom)
         if len(window_vals) >= 5:
             combined_x.append(w)
             combined_y.append(sum(window_vals) / len(window_vals))
-        w += timedelta(weeks=1)
+        w += step
     if len(combined_x) >= 2:
         x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
         y_arr = np.array(combined_y, dtype=float)
@@ -4319,6 +4374,9 @@ def chart_review_copilot_comment_density(
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
+    if month_zoom and ymax <= 5:
+        ax.yaxis.set_major_locator(MultipleLocator(0.5))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
@@ -4351,9 +4409,10 @@ def chart_review_human_comments_comparison(
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "Human comments / PR")
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     active_repos = _repos_with_copilot_activity(all_items, review_data)
     for repo in active_repos:
@@ -4378,7 +4437,7 @@ def chart_review_human_comments_comparison(
             cd = parse_date(item["created_at"])
             if not cd or cd < cutoff:
                 continue
-            wk = week_start(cd)
+            wk = _review_bucket_date(cd, month_zoom)
             if has_copilot:
                 copilot_by_week[wk].append(human_count)
             else:
@@ -4395,21 +4454,25 @@ def chart_review_human_comments_comparison(
                 continue
             weeks_x, means = [], []
             w = max(min(data.keys()), cutoff)
-            w = week_start(w)
-            while w <= last_complete_week:
-                window_vals = []
-                for k in range(4):
-                    window_vals.extend(data.get(w - timedelta(weeks=k), []))
+            if not month_zoom:
+                w = week_start(w)
+            while w <= last_complete:
+                window_vals = _review_window_values(data, w, month_zoom)
                 if len(window_vals) >= min_pts:
                     weeks_x.append(w)
                     means.append(sum(window_vals) / len(window_vals))
-                w += timedelta(weeks=1)
+                w += step
             if weeks_x:
                 ax.plot(weeks_x, means, color=repo_color,
                         label=f"{short} {label_suffix}",
                         linewidth=lw, alpha=0.85, linestyle=ls)
 
     ax.set_ylim(0, None)
+    if month_zoom:
+        ymax = ax.get_ylim()[1]
+        if ymax <= 5:
+            ax.yaxis.set_major_locator(MultipleLocator(0.5))
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
@@ -4443,9 +4506,10 @@ def chart_review_suggestion_rate(
     setup_axes(ax, title, "% with suggestions")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     visible_data = []
     line_ends = []
@@ -4468,7 +4532,7 @@ def chart_review_suggestion_rate(
             cd = parse_date(item["created_at"])
             if not cd or cd < cutoff:
                 continue
-            wk = week_start(cd)
+            wk = _review_bucket_date(cd, month_zoom)
             for c in comments_by_pr.get(num, []):
                 if _is_copilot_reviewer(c["author"]):
                     by_week_total[wk] += 1
@@ -4481,18 +4545,22 @@ def chart_review_suggestion_rate(
             continue
         weeks_x, pcts = [], []
         w = max(min(by_week_total.keys()), cutoff)
-        w = week_start(w)
-        while w <= last_complete_week:
-            total = sum(by_week_total.get(w - timedelta(weeks=k), 0) for k in range(4))
-            sugg = sum(by_week_sugg.get(w - timedelta(weeks=k), 0) for k in range(4))
+        if not month_zoom:
+            w = week_start(w)
+        while w <= last_complete:
+            total = _review_window_sum(by_week_total, w, month_zoom)
+            sugg = _review_window_sum(by_week_sugg, w, month_zoom)
             if total >= 5:
                 weeks_x.append(w)
                 pcts.append(100.0 * sugg / total)
-            w += timedelta(weeks=1)
+            w += step
         if not weeks_x:
             continue
-        ax.plot(weeks_x, pcts, color=get_color(repo), label=get_short(repo),
-                linewidth=2, alpha=0.85)
+        plot_kwargs = dict(color=get_color(repo), label=get_short(repo), linewidth=2, alpha=0.85)
+        if month_zoom:
+            plot_kwargs["marker"] = "o"
+            plot_kwargs["markersize"] = 3
+        ax.plot(weeks_x, pcts, **plot_kwargs)
         visible_data.append(pcts)
         line_ends.append((weeks_x, pcts, get_short(repo), get_color(repo)))
 
@@ -4505,14 +4573,15 @@ def chart_review_suggestion_rate(
     import numpy as np
     combined_x, combined_y = [], []
     w = min(combined_total_by_week.keys()) if combined_total_by_week else cutoff
-    w = week_start(w)
-    while w <= last_complete_week:
-        total = sum(combined_total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
-        sugg = sum(combined_sugg_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+    if not month_zoom:
+        w = week_start(w)
+    while w <= last_complete:
+        total = _review_window_sum(combined_total_by_week, w, month_zoom)
+        sugg = _review_window_sum(combined_sugg_by_week, w, month_zoom)
         if total >= 5:
             combined_x.append(w)
             combined_y.append(100.0 * sugg / total)
-        w += timedelta(weeks=1)
+        w += step
     if len(combined_x) >= 2:
         x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
         y_arr = np.array(combined_y, dtype=float)
@@ -4521,7 +4590,15 @@ def chart_review_suggestion_rate(
         ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
                 alpha=0.7, label="Combined trend")
 
-    ax.set_ylim(0, 100)
+    if month_zoom:
+        ymax = max(max(series) for series in visible_data) if visible_data else 0
+        upper = 10 if ymax <= 10 else 100
+        ax.set_ylim(0, upper)
+        if upper <= 10:
+            ax.yaxis.set_major_locator(MultipleLocator(1))
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}%"))
+    else:
+        ax.set_ylim(0, 100)
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
@@ -4557,9 +4634,10 @@ def chart_review_time_to_first_feedback(
     setup_axes(ax, title, "Hours")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     active_repos = _repos_with_copilot_activity(all_items, review_data)
     for repo in active_repos:
@@ -4584,7 +4662,7 @@ def chart_review_time_to_first_feedback(
                 created_dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
             except (ValueError, AttributeError):
                 continue
-            wk = week_start(cd)
+            wk = _review_bucket_date(cd, month_zoom)
 
             first_copilot = _first_copilot_review_ts(reviews)
             first_human = _first_human_review_ts(reviews)
@@ -4616,15 +4694,14 @@ def chart_review_time_to_first_feedback(
                 continue
             weeks_x, p50s = [], []
             w = max(min(data.keys()), cutoff)
-            w = week_start(w)
-            while w <= last_complete_week:
-                window_vals = []
-                for k in range(4):
-                    window_vals.extend(data.get(w - timedelta(weeks=k), []))
+            if not month_zoom:
+                w = week_start(w)
+            while w <= last_complete:
+                window_vals = _review_window_values(data, w, month_zoom)
                 if len(window_vals) >= 3:
                     weeks_x.append(w)
                     p50s.append(median(window_vals))
-                w += timedelta(weeks=1)
+                w += step
             if weeks_x:
                 ax.plot(weeks_x, p50s, color=repo_color,
                         label=f"{short} {label_suffix}",
@@ -4666,9 +4743,10 @@ def chart_review_copilot_to_human_approval(
     setup_axes(ax, title, "Hours")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     visible_data = []
     line_ends = []
@@ -4708,7 +4786,7 @@ def chart_review_copilot_to_human_approval(
                 app_dt = datetime.fromisoformat(first_approval.replace("Z", "+00:00"))
                 hours = (app_dt - cop_dt).total_seconds() / 3600
                 if 0 < hours < 168:  # 0-7 days
-                    wk = week_start(cd)
+                    wk = _review_bucket_date(cd, month_zoom)
                     hours_by_week[wk].append(hours)
                     combined_hours_by_week[wk].append(hours)
             except (ValueError, AttributeError):
@@ -4718,15 +4796,14 @@ def chart_review_copilot_to_human_approval(
             continue
         weeks_x, p50s = [], []
         w = max(min(hours_by_week.keys()), cutoff)
-        w = week_start(w)
-        while w <= last_complete_week:
-            window_vals = []
-            for k in range(4):
-                window_vals.extend(hours_by_week.get(w - timedelta(weeks=k), []))
+        if not month_zoom:
+            w = week_start(w)
+        while w <= last_complete:
+            window_vals = _review_window_values(hours_by_week, w, month_zoom)
             if len(window_vals) >= 3:
                 weeks_x.append(w)
                 p50s.append(median(window_vals))
-            w += timedelta(weeks=1)
+            w += step
         if not weeks_x:
             continue
         ax.plot(weeks_x, p50s, color=get_color(repo), label=get_short(repo),
@@ -4743,15 +4820,14 @@ def chart_review_copilot_to_human_approval(
     import numpy as np
     combined_x, combined_y = [], []
     w = min(combined_hours_by_week.keys()) if combined_hours_by_week else cutoff
-    w = week_start(w)
-    while w <= last_complete_week:
-        window_vals = []
-        for k in range(4):
-            window_vals.extend(combined_hours_by_week.get(w - timedelta(weeks=k), []))
+    if not month_zoom:
+        w = week_start(w)
+    while w <= last_complete:
+        window_vals = _review_window_values(combined_hours_by_week, w, month_zoom)
         if len(window_vals) >= 3:
             combined_x.append(w)
             combined_y.append(median(window_vals))
-        w += timedelta(weeks=1)
+        w += step
     if len(combined_x) >= 2:
         x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
         y_arr = np.array(combined_y, dtype=float)
@@ -4795,9 +4871,10 @@ def chart_review_human_participation(
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "Distinct reviewers / PR")
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     visible_data = []
     line_ends = []
@@ -4819,21 +4896,20 @@ def chart_review_human_participation(
                                   if r["author_type"] == "User" and r["author"])
             cd = parse_date(item["created_at"])
             if cd and cd >= cutoff:
-                count_by_week[week_start(cd)].append(len(human_reviewers))
+                count_by_week[_review_bucket_date(cd, month_zoom)].append(len(human_reviewers))
 
         if not count_by_week:
             continue
         weeks_x, means = [], []
         w = max(min(count_by_week.keys()), cutoff)
-        w = week_start(w)
-        while w <= last_complete_week:
-            window_vals = []
-            for k in range(4):
-                window_vals.extend(count_by_week.get(w - timedelta(weeks=k), []))
+        if not month_zoom:
+            w = week_start(w)
+        while w <= last_complete:
+            window_vals = _review_window_values(count_by_week, w, month_zoom)
             if len(window_vals) >= 5:
                 weeks_x.append(w)
                 means.append(sum(window_vals) / len(window_vals))
-            w += timedelta(weeks=1)
+            w += step
         if not weeks_x:
             continue
         ax.plot(weeks_x, means, color=get_color(repo), label=get_short(repo),
@@ -4864,18 +4940,17 @@ def chart_review_human_participation(
                                   if r["author_type"] == "User" and r["author"])
             cd = parse_date(item["created_at"])
             if cd and cd >= cutoff:
-                all_weeks_combined[week_start(cd)].append(len(human_reviewers))
+                all_weeks_combined[_review_bucket_date(cd, month_zoom)].append(len(human_reviewers))
     combined_x, combined_y = [], []
     w = min(all_weeks_combined.keys()) if all_weeks_combined else cutoff
-    w = week_start(w)
-    while w <= last_complete_week:
-        window_vals = []
-        for k in range(4):
-            window_vals.extend(all_weeks_combined.get(w - timedelta(weeks=k), []))
+    if not month_zoom:
+        w = week_start(w)
+    while w <= last_complete:
+        window_vals = _review_window_values(all_weeks_combined, w, month_zoom)
         if len(window_vals) >= 5:
             combined_x.append(w)
             combined_y.append(sum(window_vals) / len(window_vals))
-        w += timedelta(weeks=1)
+        w += step
     if len(combined_x) >= 2:
         x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
         y_arr = np.array(combined_y, dtype=float)
@@ -4887,6 +4962,8 @@ def chart_review_human_participation(
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    if month_zoom and ymax <= 5:
+        ax.yaxis.set_major_locator(MultipleLocator(0.5))
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
@@ -4920,9 +4997,10 @@ def chart_review_copilot_coverage(
     setup_axes(ax, title, "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
-    today = datetime.now().date()
+    today = _review_effective_today(all_items, month_zoom)
     cutoff = today - timedelta(days=cutoff_days)
-    last_complete_week = week_start(today) - timedelta(weeks=1)
+    last_complete = (today - timedelta(days=1)) if month_zoom else (week_start(today) - timedelta(weeks=1))
+    step = timedelta(days=3 if month_zoom else 7)
 
     visible_data = []
     line_ends = []
@@ -4944,7 +5022,7 @@ def chart_review_copilot_coverage(
             cd = parse_date(item["created_at"])
             if not cd or cd < cutoff:
                 continue
-            wk = week_start(cd)
+            wk = _review_bucket_date(cd, month_zoom)
             total_by_week[wk] += 1
             combined_total_by_week[wk] += 1
             reviews = reviews_by_pr.get(num, [])
@@ -4956,14 +5034,15 @@ def chart_review_copilot_coverage(
             continue
         weeks_x, pcts = [], []
         w = max(min(total_by_week.keys()), cutoff)
-        w = week_start(w)
-        while w <= last_complete_week:
-            total = sum(total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
-            cop = sum(copilot_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+        if not month_zoom:
+            w = week_start(w)
+        while w <= last_complete:
+            total = _review_window_sum(total_by_week, w, month_zoom)
+            cop = _review_window_sum(copilot_by_week, w, month_zoom)
             if total >= 5:
                 weeks_x.append(w)
                 pcts.append(100.0 * cop / total)
-            w += timedelta(weeks=1)
+            w += step
         if not weeks_x:
             continue
         ax.plot(weeks_x, pcts, color=get_color(repo), label=get_short(repo),
@@ -4980,14 +5059,15 @@ def chart_review_copilot_coverage(
     import numpy as np
     combined_x, combined_y = [], []
     w = min(combined_total_by_week.keys()) if combined_total_by_week else cutoff
-    w = week_start(w)
-    while w <= last_complete_week:
-        total = sum(combined_total_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
-        cop = sum(combined_copilot_by_week.get(w - timedelta(weeks=k), 0) for k in range(4))
+    if not month_zoom:
+        w = week_start(w)
+    while w <= last_complete:
+        total = _review_window_sum(combined_total_by_week, w, month_zoom)
+        cop = _review_window_sum(combined_copilot_by_week, w, month_zoom)
         if total >= 5:
             combined_x.append(w)
             combined_y.append(100.0 * cop / total)
-        w += timedelta(weeks=1)
+        w += step
     if len(combined_x) >= 2:
         x_numeric = np.array([(d - combined_x[0]).days for d in combined_x], dtype=float)
         y_arr = np.array(combined_y, dtype=float)
