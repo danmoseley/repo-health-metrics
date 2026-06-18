@@ -1,4 +1,6 @@
 repo,item_type,last_page,items_fetched,total_expected,updated_at,status,sync_started_at,next_url
+Azure/azure-sdk-for-js,issue,390,10249,,2026-06-18T19:02:28.505706+00:00,complete,2026-06-18T18:50:48.280213+00:00,
+Azure/azure-sdk-for-js,pr,287,28669,,2026-06-18T18:56:01.764019+00:00,complete,2026-06-18T18:50:48.280213+00:00,
 dotnet/coreclr,pr,0,18208,,,complete,2023-01-21T00:23:55Z,
 dotnet/corefx,pr,0,24927,,,complete,2023-01-20T23:48:58Z,
 dotnet/maui,issue,0,17518,,,complete,2026-06-18T16:51:36.185020+00:00,
