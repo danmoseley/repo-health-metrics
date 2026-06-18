@@ -4110,14 +4110,12 @@ def _set_review_month_zoom_xaxis(ax):
     ax.xaxis.set_minor_locator(mdates.DayLocator(interval=1))
 
 
-_REVIEW_LATEST_CREATED_CACHE = {}
+_REVIEW_LATEST_CREATED_CACHE = {"items": None, "latest_created": None}
 
 
 def _review_latest_created(all_items):
-    cache_key = id(all_items)
-    cached = _REVIEW_LATEST_CREATED_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
+    if _REVIEW_LATEST_CREATED_CACHE["items"] is all_items:
+        return _REVIEW_LATEST_CREATED_CACHE["latest_created"]
 
     latest_created = None
     for repo in REVIEW_CHART_REPOS:
@@ -4130,7 +4128,8 @@ def _review_latest_created(all_items):
             d = parse_date(it.get("created_at"))
             if d is not None and (latest_created is None or d > latest_created):
                 latest_created = d
-    _REVIEW_LATEST_CREATED_CACHE[cache_key] = latest_created
+    _REVIEW_LATEST_CREATED_CACHE["items"] = all_items
+    _REVIEW_LATEST_CREATED_CACHE["latest_created"] = latest_created
     return latest_created
 
 
