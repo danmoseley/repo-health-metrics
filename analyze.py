@@ -4119,17 +4119,17 @@ def _review_latest_created(all_items):
     if cached is not None:
         return cached
 
-    valid_created_dates = [
-        d
-        for repo in REVIEW_CHART_REPOS
-        for items in [all_items.get(repo)]
-        if items
-        for it in items
-        if it.get("is_pr") and it.get("merged_at") and it.get("created_at")
-        for d in [parse_date(it.get("created_at"))]
-        if d is not None
-    ]
-    latest_created = max(valid_created_dates, default=None)
+    latest_created = None
+    for repo in REVIEW_CHART_REPOS:
+        items = all_items.get(repo)
+        if not items:
+            continue
+        for it in items:
+            if not it.get("is_pr") or not it.get("merged_at") or not it.get("created_at"):
+                continue
+            d = parse_date(it.get("created_at"))
+            if d is not None and (latest_created is None or d > latest_created):
+                latest_created = d
     _REVIEW_LATEST_CREATED_CACHE[cache_key] = latest_created
     return latest_created
 
