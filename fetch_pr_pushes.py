@@ -44,6 +44,7 @@ DEFAULT_REPOS = [
     "dotnet/roslyn",
     "dotnet/maui",
     "microsoft/aspire",
+    "Azure/azure-sdk-for-js",
 ]
 
 # How recent a closed PR must be to still get re-fetched (catches late events).

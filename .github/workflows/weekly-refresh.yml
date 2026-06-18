@@ -30,11 +30,11 @@ env:
   REVIEW_LIMIT: "500"
   COPILOT_COMMITS_LIMIT: "500"
   REPOS: >-
-    dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
+    dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire Azure/azure-sdk-for-js
     microsoft/vcpkg microsoft/vscode golang/go rust-lang/rust
   # Subset of REPOS that have push-event and review data fetched
-  PUSH_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
-  REVIEW_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
+  PUSH_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire Azure/azure-sdk-for-js
+  REVIEW_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire Azure/azure-sdk-for-js
 
 jobs:
   refresh-smoke:

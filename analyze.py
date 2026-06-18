@@ -45,6 +45,7 @@ REPO_COLORS = {
     "dotnet/maui": "#FF8F00",      # amber/orange
     "dotnet/aspire": "#4CAF50",    # green (transferred to microsoft/aspire)
     "microsoft/aspire": "#4CAF50", # green
+    "Azure/azure-sdk-for-js": "#007FFF",  # azure blue
     "microsoft/vscode": "#007ACC", # VS Code blue
     "microsoft/vcpkg": "#6A1B9A",  # deep purple
     "rust-lang/rust": "#B7410E",   # rust red-brown
@@ -57,6 +58,7 @@ REPO_SHORT = {
     "dotnet/maui": "maui",
     "dotnet/aspire": "aspire",
     "microsoft/aspire": "aspire",
+    "Azure/azure-sdk-for-js": "azure-sdk-js",
     "microsoft/vscode": "vscode",
     "microsoft/vcpkg": "vcpkg",
     "rust-lang/rust": "rust",
@@ -3253,7 +3255,7 @@ def chart_pr_opened_vs_merged_zoomed(all_items, output_dir):
 # Repos to include in comment-based charts
 COMMENT_CHART_REPOS = (
     "dotnet/runtime", "dotnet/roslyn", "dotnet/maui",
-    "microsoft/aspire",
+    "microsoft/aspire", "Azure/azure-sdk-for-js",
 )
 
 
@@ -3725,6 +3727,7 @@ def chart_copilot_time_comment_to_merge(all_items, all_first_comments, output_di
 # Repos with push-event data fetched (mirrors fetch_pr_pushes.py DEFAULT_REPOS).
 PUSH_CHART_REPOS = (
     "dotnet/runtime", "dotnet/roslyn", "dotnet/maui", "microsoft/aspire",
+    "Azure/azure-sdk-for-js",
 )
 
 # Cluster events whose consecutive timestamps differ by ≤ this many minutes
@@ -3982,7 +3985,10 @@ def chart_pushes_per_pr_over_time(all_items, all_push_events, output_dir):
 # REVIEW METRICS — Copilot Code Review effectiveness charts
 # ============================================================================
 
-REVIEW_CHART_REPOS = ("dotnet/runtime", "dotnet/roslyn", "dotnet/maui", "microsoft/aspire")
+REVIEW_CHART_REPOS = (
+    "dotnet/runtime", "dotnet/roslyn", "dotnet/maui", "microsoft/aspire",
+    "Azure/azure-sdk-for-js",
+)
 
 
 def load_review_data(conn, repo):

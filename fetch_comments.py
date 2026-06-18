@@ -35,6 +35,7 @@ REQUEST_DELAY = 0.5
 # Repos to fetch comments for (skip vscode, rust, go — too large or not needed)
 COMMENT_REPOS = [
     "microsoft/aspire",
+    "Azure/azure-sdk-for-js",
     "microsoft/vcpkg",
     "dotnet/maui",
     "dotnet/roslyn",
