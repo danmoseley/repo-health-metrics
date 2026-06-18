@@ -552,7 +552,8 @@ def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None, retry
     since_str = since_date.strftime("%Y-%m-%dT%H:%M:%SZ")
     progress_statuses = ["complete"] if retry_failed else ["complete", "failed"]
     status_placeholders = ", ".join("?" for _ in progress_statuses)
-    prs = conn.execute(
+    limit_clause = " LIMIT ?" if limit is not None else ""
+    query = (
         "SELECT number FROM items "
         "WHERE repo = ? AND is_pull_request = 1 "
         "AND merged_at IS NOT NULL AND merged_at != '' "
@@ -561,13 +562,15 @@ def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None, retry
         "  SELECT number FROM review_fetch_progress "
         f"  WHERE repo = ? AND status IN ({status_placeholders})"
         ") "
-        "ORDER BY number",
-        (repo, since_str, repo, *progress_statuses)
-    ).fetchall()
+        "ORDER BY number"
+        + limit_clause
+    )
+    params = [repo, since_str, repo, *progress_statuses]
+    if limit is not None:
+        params.append(limit)
+    prs = conn.execute(query, params).fetchall()
 
     pr_numbers = [r[0] for r in prs]
-    if limit is not None:
-        pr_numbers = pr_numbers[:limit]
     total = len(pr_numbers)
     if total == 0:
         print(f"  {repo}: all recent merged PRs already fetched")
