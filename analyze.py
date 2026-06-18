@@ -4114,15 +4114,15 @@ def _review_effective_today(all_items, month_zoom):
     today = datetime.now().date()
     if not month_zoom:
         return today
-    latest_created = max(
-        (
-            parse_date(it.get("created_at"))
-            for items in all_items.values()
-            for it in items
-            if it.get("is_pr") and it.get("merged_at") and it.get("created_at")
-        ),
-        default=None,
-    )
+    valid_created_dates = [
+        d
+        for items in all_items.values()
+        for it in items
+        if it.get("is_pr") and it.get("merged_at") and it.get("created_at")
+        for d in [parse_date(it.get("created_at"))]
+        if d is not None
+    ]
+    latest_created = max(valid_created_dates, default=None)
     if latest_created is None:
         return today
     # Keep the same "exclude partial today" behavior while anchoring to data freshness.
@@ -4541,8 +4541,9 @@ def chart_review_suggestion_rate(
             w += step
         if not weeks_x:
             continue
+        marker = "o" if month_zoom else None
         ax.plot(weeks_x, pcts, color=get_color(repo), label=get_short(repo),
-                linewidth=2, alpha=0.85)
+                linewidth=2, alpha=0.85, marker=marker, markersize=3 if marker else None)
         visible_data.append(pcts)
         line_ends.append((weeks_x, pcts, get_short(repo), get_color(repo)))
 
@@ -4572,7 +4573,16 @@ def chart_review_suggestion_rate(
         ax.plot(combined_x, trend_y, color="gray", linestyle=":", linewidth=1.5,
                 alpha=0.7, label="Combined trend")
 
-    ax.set_ylim(0, 100)
+    if month_zoom:
+        ymax = max(max(series) for series in visible_data) if visible_data else 0
+        upper = 10 if ymax <= 10 else 100
+        lower = -0.5 if ymax <= 1 else 0
+        ax.set_ylim(lower, upper)
+        if upper <= 10:
+            ax.yaxis.set_major_locator(MultipleLocator(1))
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}%"))
+    else:
+        ax.set_ylim(0, 100)
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
