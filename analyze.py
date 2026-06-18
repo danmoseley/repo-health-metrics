@@ -4409,11 +4409,11 @@ def chart_review_human_comments_comparison(
 def chart_review_suggestion_rate(
         all_items, review_data, output_dir, *,
         cutoff_days=365,
-        title="Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)",
+        title="Copilot Review Suggestion Rate — % of Review Comments with Code Suggestions (4-week rolling)",
         output_file="review_suggestion_rate.png",
         insight_lines=None,
         month_zoom=False):
-    """Copilot Suggestion Rate — % of Copilot comments containing code suggestions."""
+    """Copilot Review Suggestion Rate — % of Copilot review comments containing code suggestions."""
     fig, ax = plt.subplots(figsize=(14, 7))
     setup_axes(ax, title, "% with suggestions")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
@@ -5030,7 +5030,7 @@ def chart_review_suggestion_rate_last_month(all_items, review_data, output_dir):
     chart_review_suggestion_rate(
         all_items, review_data, output_dir,
         cutoff_days=35,
-        title="Suggestion Rate — Last Month (% with suggestions, 4-week rolling)",
+        title="Copilot Review Suggestion Rate — Last Month (% with suggestions, 4-week rolling)",
         output_file="review_suggestion_rate_last_month.png",
         month_zoom=True,
         insight_lines=[
