@@ -4198,7 +4198,7 @@ def chart_review_churn_before_human(
 
         if not ratio_by_week:
             continue
-        # Weekly P50 with 4-week rolling window
+        # P50 over a rolling 4-week window (evaluated weekly or every 3 days for month zoom)
         weeks_x, p50s = [], []
         w = max(min(ratio_by_week.keys()), cutoff)
         if not month_zoom:
