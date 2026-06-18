@@ -4593,8 +4593,7 @@ def chart_review_suggestion_rate(
     if month_zoom:
         ymax = max(max(series) for series in visible_data) if visible_data else 0
         upper = 10 if ymax <= 10 else 100
-        lower = -0.5 if ymax <= 1 else 0
-        ax.set_ylim(lower, upper)
+        ax.set_ylim(0, upper)
         if upper <= 10:
             ax.yaxis.set_major_locator(MultipleLocator(1))
             ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}%"))
