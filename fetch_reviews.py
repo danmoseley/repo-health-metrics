@@ -528,7 +528,7 @@ def _thread_comment_keys(thread):
     return []
 
 
-def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None):
+def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None, retry_failed=False):
     """Fetch review data for all recent merged PRs in a repo."""
     owner, name = repo.split("/")
 
@@ -545,8 +545,13 @@ def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None):
         print(f"  {repo}: no PR data in items table — run fetch.py first")
         return
 
-    # Get merged PRs that need fetching (not yet in progress table or not complete)
+    # Get merged PRs that still need fetching.
+    # By default we skip PRs already marked failed so steady-state runs don't
+    # spend time retrying the same known-bad PRs. --retry-failed explicitly
+    # clears those markers before this query runs.
     since_str = since_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    progress_statuses = ["complete"] if retry_failed else ["complete", "failed"]
+    status_placeholders = ", ".join("?" for _ in progress_statuses)
     prs = conn.execute(
         "SELECT number FROM items "
         "WHERE repo = ? AND is_pull_request = 1 "
@@ -554,10 +559,10 @@ def fetch_repo_reviews(conn, session, token, repo, since_date, limit=None):
         "AND merged_at >= ? "
         "AND number NOT IN ("
         "  SELECT number FROM review_fetch_progress "
-        "  WHERE repo = ? AND status = 'complete'"
+        f"  WHERE repo = ? AND status IN ({status_placeholders})"
         ") "
         "ORDER BY number",
-        (repo, since_str, repo)
+        (repo, since_str, repo, *progress_statuses)
     ).fetchall()
 
     pr_numbers = [r[0] for r in prs]
@@ -798,7 +803,7 @@ def main():
     for repo in repos:
         if _shutdown:
             break
-        fetch_repo_reviews(conn, session, token, repo, since_date, args.limit)
+        fetch_repo_reviews(conn, session, token, repo, since_date, args.limit, args.retry_failed)
         print()
 
     # Also fetch Copilot agentic review comments (github-actions[bot])
