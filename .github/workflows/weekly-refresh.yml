@@ -31,7 +31,7 @@ env:
   COPILOT_COMMITS_LIMIT: "500"
   REPOS: >-
     dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
-    microsoft/vscode golang/go rust-lang/rust
+    microsoft/vcpkg microsoft/vscode golang/go rust-lang/rust
   # Subset of REPOS that have push-event and review data fetched
   PUSH_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire
   REVIEW_REPOS: dotnet/runtime dotnet/roslyn dotnet/maui microsoft/aspire

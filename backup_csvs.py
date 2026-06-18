@@ -9,6 +9,7 @@ committed CSV backups so the data survives DB deletion/clones.
 Tables exported:
   - items                    -> data/items.csv.gz (main data)
   - pr_first_comment          -> data/pr_first_comment.csv
+  - comment_fetch_progress    -> data/comment_fetch_progress.csv
   - pr_push_events            -> data/pr_push_events.csv.gz
   - pr_push_progress          -> data/pr_push_progress.csv
   - pr_reviews                -> data/pr_reviews.csv.gz
@@ -44,6 +45,10 @@ EXPORTS = [
      "pr_first_comment.csv",
      ["repo", "number", "first_comment_at", "commenter"],
      "repo, number"),
+    ("comment_fetch_progress",
+     "comment_fetch_progress.csv",
+     ["repo", "last_comment_id", "last_since", "updated_at"],
+     "repo"),
     ("pr_push_events",
      "pr_push_events.csv.gz",
      ["repo", "number", "event_id", "kind", "ts"],

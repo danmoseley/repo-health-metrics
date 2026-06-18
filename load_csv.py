@@ -33,6 +33,17 @@ AUX_TABLES = [
         ["repo", "number", "first_comment_at", "commenter"],
     ),
     (
+        "comment_fetch_progress",
+        "data/comment_fetch_progress.csv",
+        """CREATE TABLE IF NOT EXISTS comment_fetch_progress (
+            repo TEXT PRIMARY KEY,
+            last_comment_id INTEGER NOT NULL DEFAULT 0,
+            last_since TEXT,
+            updated_at TEXT
+        );""",
+        ["repo", "last_comment_id", "last_since", "updated_at"],
+    ),
+    (
         "pr_push_events",
         "data/pr_push_events.csv.gz",
         """CREATE TABLE IF NOT EXISTS pr_push_events (
