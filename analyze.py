@@ -4340,6 +4340,9 @@ def chart_review_copilot_comment_density(
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
+    if month_zoom and ymax <= 5:
+        ax.yaxis.set_major_locator(MultipleLocator(0.5))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
@@ -4431,6 +4434,11 @@ def chart_review_human_comments_comparison(
                         linewidth=lw, alpha=0.85, linestyle=ls)
 
     ax.set_ylim(0, None)
+    if month_zoom:
+        ymax = ax.get_ylim()[1]
+        if ymax <= 5:
+            ax.yaxis.set_major_locator(MultipleLocator(0.5))
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
@@ -4909,6 +4917,8 @@ def chart_review_human_participation(
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
+    if month_zoom and ymax <= 5:
+        ax.yaxis.set_major_locator(MultipleLocator(0.5))
     if month_zoom:
         _set_review_month_zoom_xaxis(ax)
     else:
