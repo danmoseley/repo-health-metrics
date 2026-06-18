@@ -4078,7 +4078,19 @@ def _repos_with_copilot_activity(all_items, review_data):
     return result
 
 
-def chart_review_churn_before_human(all_items, review_data, output_dir):
+def _set_review_month_zoom_xaxis(ax):
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0, interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_minor_locator(mdates.DayLocator(interval=1))
+
+
+def chart_review_churn_before_human(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Code Changes Completed Before Human Review (4-week rolling P50)",
+        output_file="review_churn_before_human.png",
+        insight_lines=None,
+        month_zoom=False):
     """⭐ % of code changes completed before first human review.
     For Copilot-reviewed PRs, what fraction of total lines changed were already
     done before the first human touched the PR? Ideally approaches 100% as
@@ -4086,12 +4098,11 @@ def chart_review_churn_before_human(all_items, review_data, output_dir):
     from statistics import median
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Code Changes Completed Before Human Review (4-week rolling P50)",
-               "% of lines changed before human review")
+    setup_axes(ax, title, "% of lines changed before human review")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     visible_data = []
@@ -4165,13 +4176,16 @@ def chart_review_churn_before_human(all_items, review_data, output_dir):
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(max(0, ymin - 5), 105)
     ax.axhline(y=100, color="green", linestyle="--", alpha=0.3, linewidth=1)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="lower left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "Of all lines changed in a Copilot-reviewed PR, what % were done",
         "BEFORE the first human review comment/approval?",
         "Higher = humans find less to change = Copilot caught issues early",
@@ -4179,20 +4193,25 @@ def chart_review_churn_before_human(all_items, review_data, output_dir):
         "P50 of per-PR ratios; PRs with <2 commits, <10 or >10K LOC excluded",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_churn_before_human.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_copilot_comment_density(all_items, review_data, output_dir):
+def chart_review_copilot_comment_density(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Copilot Review Comments per 100 Lines Changed (4-week rolling mean)",
+        output_file="review_copilot_comment_density.png",
+        insight_lines=None,
+        month_zoom=False):
     """Copilot Review Comment Density — comments per 100 lines changed, weekly trend."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot Review Comments per 100 Lines Changed (4-week rolling mean)",
-               "Comments / 100 LOC")
+    setup_axes(ax, title, "Comments / 100 LOC")
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     visible_data = []
@@ -4275,32 +4294,40 @@ def chart_review_copilot_comment_density(all_items, review_data, output_dir):
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "Copilot review comments per 100 lines changed (additions + deletions)",
         "Normalized by PR size so large PRs don't inflate the metric",
         "Only Copilot-reviewed PRs with ≥10 LOC; coverage tracked separately",
         "Rising = Copilot finding more per line; declining = cleaner code or lighter touch",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_copilot_comment_density.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_human_comments_comparison(all_items, review_data, output_dir):
+def chart_review_human_comments_comparison(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Human Review Comments — Copilot-Reviewed vs Not (4-week rolling mean)",
+        output_file="review_human_comments_comparison.png",
+        insight_lines=None,
+        month_zoom=False):
     """Human comments on Copilot-reviewed PRs vs non-Copilot-reviewed PRs."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Human Review Comments — Copilot-Reviewed vs Not (4-week rolling mean)",
-               "Human comments / PR")
+    setup_axes(ax, title, "Human comments / PR")
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     active_repos = _repos_with_copilot_activity(all_items, review_data)
@@ -4358,33 +4385,41 @@ def chart_review_human_comments_comparison(all_items, review_data, output_dir):
                         linewidth=lw, alpha=0.85, linestyle=ls)
 
     ax.set_ylim(0, None)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     add_direction_arrow(ax, "down")
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "Human review comments per merged PR, split by whether Copilot also reviewed",
         "Solid = w/ Copilot review; Dashed = without (same color = same repo)",
         "Copilot-reviewed PRs may show MORE human comments due to selection bias",
         "Better metric: trend within Copilot-reviewed PRs over time (TODO)",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_human_comments_comparison.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_suggestion_rate(all_items, review_data, output_dir):
+def chart_review_suggestion_rate(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)",
+        output_file="review_suggestion_rate.png",
+        insight_lines=None,
+        month_zoom=False):
     """Copilot Suggestion Rate — % of Copilot comments containing code suggestions."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot Suggestion Rate — % of Comments with Code Suggestions (4-week rolling)",
-               "% with suggestions")
+    setup_axes(ax, title, "% with suggestions")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     visible_data = []
@@ -4462,35 +4497,43 @@ def chart_review_suggestion_rate(all_items, review_data, output_dir):
                 alpha=0.7, label="Combined trend")
 
     ax.set_ylim(0, 100)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "What % of Copilot review comments include a concrete code suggestion?",
         "Higher = more actionable feedback (developers can click 'Apply')",
         "Suggestions detected via ```suggestion``` blocks in comment body",
         "Trend reflects Copilot's ability to propose specific fixes, not just flag issues",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_suggestion_rate.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_time_to_first_feedback(all_items, review_data, output_dir):
+def chart_review_time_to_first_feedback(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Time to First Review Feedback — Copilot vs Human (P50 hours, 4-week rolling)",
+        output_file="review_time_to_first_feedback.png",
+        insight_lines=None,
+        month_zoom=False):
     """Time to First Actionable Feedback — Copilot vs Human, P50 hours."""
     from statistics import median
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Time to First Review Feedback — Copilot vs Human (P50 hours, 4-week rolling)",
-               "Hours")
+    setup_axes(ax, title, "Hours")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     active_repos = _repos_with_copilot_activity(all_items, review_data)
@@ -4563,35 +4606,43 @@ def chart_review_time_to_first_feedback(all_items, review_data, output_dir):
                         linewidth=lw, alpha=0.85, linestyle=ls)
 
     ax.set_ylim(0, None)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     add_direction_arrow(ax, "down")
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "How quickly does a PR get its first review feedback?",
         "Solid = first Copilot review; Dashed = first human review (same color = same repo)",
         "Copilot reviews are near-instant (minutes); humans take hours/days",
         "The gap shows Copilot's 24/7 coverage advantage — feedback while you sleep",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_time_to_first_feedback.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_copilot_to_human_approval(all_items, review_data, output_dir):
+def chart_review_copilot_to_human_approval(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Copilot Review → Human Approval (P50 hours, 4-week rolling)",
+        output_file="review_copilot_to_approval.png",
+        insight_lines=None,
+        month_zoom=False):
     """Copilot Review → Human Approval — time from Copilot review to human APPROVED."""
     from statistics import median
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot Review → Human Approval (P50 hours, 4-week rolling)",
-               "Hours")
+    setup_axes(ax, title, "Hours")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     visible_data = []
@@ -4686,32 +4737,41 @@ def chart_review_copilot_to_human_approval(all_items, review_data, output_dir):
 
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "down")
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "After Copilot reviews a PR, how long until a human approves it?",
         "Shrinking gap = humans trust Copilot's pre-screen and approve faster",
         "Only includes PRs where Copilot reviewed AND human later approved",
         "Declining trend suggests growing trust in Copilot as first-pass reviewer",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_copilot_to_approval.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_human_participation(all_items, review_data, output_dir):
+def chart_review_human_participation(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Human Reviewers per PR (4-week rolling mean)",
+        output_file="review_human_participation.png",
+        insight_lines=None,
+        month_zoom=False):
     """Human Reviewer Participation Rate — distinct human reviewers per PR."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Human Reviewers per PR (4-week rolling mean)", "Distinct reviewers / PR")
+    setup_axes(ax, title, "Distinct reviewers / PR")
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     visible_data = []
@@ -4802,33 +4862,41 @@ def chart_review_human_participation(all_items, review_data, output_dir):
     ymin, ymax = robust_ylim(visible_data)
     ax.set_ylim(0, ymax)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "Average distinct human reviewers who leave reviews per merged PR",
         "If Copilot review is trusted, fewer humans may need to pile on",
         "Stable or slight decline = healthy — one trusted reviewer is enough",
         "Sharp decline could indicate review abandonment (watch alongside merge rate)",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_human_participation.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
 
 
-def chart_review_copilot_coverage(all_items, review_data, output_dir):
+def chart_review_copilot_coverage(
+        all_items, review_data, output_dir, *,
+        cutoff_days=365,
+        title="Copilot Review Coverage — % of Merged PRs Reviewed (4-week rolling)",
+        output_file="review_copilot_coverage.png",
+        insight_lines=None,
+        month_zoom=False):
     """Copilot Review Coverage — % of merged PRs that received Copilot review."""
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Copilot Review Coverage — % of Merged PRs Reviewed (4-week rolling)",
-               "% of PRs")
+    setup_axes(ax, title, "% of PRs")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.0f}%"))
 
     today = datetime.now().date()
-    cutoff = today - timedelta(days=365)
+    cutoff = today - timedelta(days=cutoff_days)
     last_complete_week = week_start(today) - timedelta(weeks=1)
 
     visible_data = []
@@ -4904,23 +4972,154 @@ def chart_review_copilot_coverage(all_items, review_data, output_dir):
                 alpha=0.7, label="Combined trend")
 
     ax.set_ylim(0, 100)
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    if month_zoom:
+        _set_review_month_zoom_xaxis(ax)
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
     ax.legend(loc="upper left", fontsize=10)
     label_line_ends(ax, line_ends)
     add_direction_arrow(ax, "up")
-    add_insight_box(ax, [
+    add_insight_box(ax, insight_lines or [
         "What % of merged PRs received at least one Copilot code review?",
         "Higher = broader coverage, more PRs getting automated first-pass review",
         "Rapid adoption since May 2025; now covers majority of runtime PRs",
         "100% coverage not expected — some PRs (bot-authored, trivial) skip review",
     ])
     fig.tight_layout()
-    path = os.path.join(output_dir, "review_copilot_coverage.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
+
+
+def chart_review_copilot_coverage_last_month(all_items, review_data, output_dir):
+    chart_review_copilot_coverage(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Copilot Review Coverage — Last Month (4-week rolling)",
+        output_file="review_copilot_coverage_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of Copilot review coverage (% of merged PRs reviewed by Copilot)",
+            "Use this to watch week-over-week movement instead of 6–12 month trends",
+            "Expect some volatility from small weekly sample sizes",
+            "Most useful for spotting sudden adoption drops or spikes in runtime",
+        ],
+    )
+
+
+def chart_review_copilot_comment_density_last_month(all_items, review_data, output_dir):
+    chart_review_copilot_comment_density(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Copilot Comment Density — Last Month (4-week rolling mean)",
+        output_file="review_copilot_comment_density_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of Copilot comments per 100 LOC on reviewed PRs",
+            "Rising values mean denser Copilot feedback; falling means lighter touch",
+            "This short view is tuned for week-over-week runtime swings",
+            "Interpret with coverage chart to separate intensity from adoption",
+        ],
+    )
+
+
+def chart_review_suggestion_rate_last_month(all_items, review_data, output_dir):
+    chart_review_suggestion_rate(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Suggestion Rate — Last Month (% with suggestions, 4-week rolling)",
+        output_file="review_suggestion_rate_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of the % of Copilot comments that include code suggestions",
+            "Higher values mean more comments are directly actionable",
+            "Week-over-week shifts can indicate prompt/model behavior changes",
+            "Volatile series — watch for sustained movement over multiple weeks",
+        ],
+    )
+
+
+def chart_review_human_comments_comparison_last_month(all_items, review_data, output_dir):
+    chart_review_human_comments_comparison(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Human Comments Comparison — Last Month (4-week rolling mean)",
+        output_file="review_human_comments_comparison_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of human comments per PR: with Copilot (solid) vs without (dashed)",
+            "Same-color lines are the same repo; line style is the comparison dimension",
+            "Short-term divergence highlights where Copilot-reviewed PRs need more/less human follow-up",
+            "Use alongside coverage to distinguish mix shifts from behavior shifts",
+        ],
+    )
+
+
+def chart_review_churn_before_human_last_month(all_items, review_data, output_dir):
+    chart_review_churn_before_human(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Code Completeness Before Human Review — Last Month (4-week rolling P50)",
+        output_file="review_churn_before_human_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of % of PR code changes completed before first human review",
+            "Higher values suggest Copilot catches issues earlier, reducing post-review churn",
+            "Runtime week-over-week dips can flag bursts of late rework",
+            "Small windows are noisy — confirm trends over consecutive weeks",
+        ],
+    )
+
+
+def chart_review_time_to_first_feedback_last_month(all_items, review_data, output_dir):
+    chart_review_time_to_first_feedback(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Time to First Feedback — Last Month (P50 hours, 4-week rolling)",
+        output_file="review_time_to_first_feedback_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of first-feedback latency: Copilot (solid) vs human (dashed)",
+            "Lower values are faster; Copilot should remain near-immediate",
+            "Week-over-week human shifts expose review-bandwidth changes quickly",
+            "Cap remains 1 week to prevent long-tail outliers from dominating",
+        ],
+    )
+
+
+def chart_review_copilot_to_human_approval_last_month(all_items, review_data, output_dir):
+    chart_review_copilot_to_human_approval(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Copilot→Human Approval — Last Month (P50 hours, 4-week rolling)",
+        output_file="review_copilot_to_approval_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of hours from first Copilot review to first human approval",
+            "Lower is faster handoff from AI triage to human sign-off",
+            "Useful for spotting week-over-week trust/throughput changes in runtime",
+            "Only includes PRs that had both Copilot review and later human approval",
+        ],
+    )
+
+
+def chart_review_human_participation_last_month(all_items, review_data, output_dir):
+    chart_review_human_participation(
+        all_items, review_data, output_dir,
+        cutoff_days=35,
+        title="Human Reviewer Participation — Last Month (4-week rolling mean)",
+        output_file="review_human_participation_last_month.png",
+        month_zoom=True,
+        insight_lines=[
+            "Last-month zoom of distinct human reviewers per merged PR",
+            "Lower can mean efficiency gains; sharp drops can also indicate under-review",
+            "Week-over-week movement helps validate whether changes are sustained",
+            "Cross-check with merge rate and revert-rate charts for safety context",
+        ],
+    )
 
 
 def chart_review_rubber_stamp_rate(all_items, review_data, output_dir):
@@ -6194,13 +6393,21 @@ def main():
     if all_review_data:
         print("\n  --- Review Metrics (Copilot Code Review) ---")
         chart_review_copilot_coverage(all_items, all_review_data, output_dir)
+        chart_review_copilot_coverage_last_month(all_items, all_review_data, output_dir)
         chart_review_copilot_comment_density(all_items, all_review_data, output_dir)
+        chart_review_copilot_comment_density_last_month(all_items, all_review_data, output_dir)
         chart_review_suggestion_rate(all_items, all_review_data, output_dir)
+        chart_review_suggestion_rate_last_month(all_items, all_review_data, output_dir)
         chart_review_human_comments_comparison(all_items, all_review_data, output_dir)
+        chart_review_human_comments_comparison_last_month(all_items, all_review_data, output_dir)
         chart_review_churn_before_human(all_items, all_review_data, output_dir)
+        chart_review_churn_before_human_last_month(all_items, all_review_data, output_dir)
         chart_review_time_to_first_feedback(all_items, all_review_data, output_dir)
+        chart_review_time_to_first_feedback_last_month(all_items, all_review_data, output_dir)
         chart_review_copilot_to_human_approval(all_items, all_review_data, output_dir)
+        chart_review_copilot_to_human_approval_last_month(all_items, all_review_data, output_dir)
         chart_review_human_participation(all_items, all_review_data, output_dir)
+        chart_review_human_participation_last_month(all_items, all_review_data, output_dir)
         chart_review_rubber_stamp_rate(all_items, all_review_data, output_dir)
         chart_review_human_approval_speed(all_items, all_review_data, output_dir)
         chart_review_iteration_count(all_items, all_review_data, output_dir)
