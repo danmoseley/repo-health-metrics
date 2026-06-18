@@ -36,9 +36,9 @@ import requests as req
 DEFAULT_DB = "pr-dashboard.db"
 REQUEST_DELAY = 0.4
 
-# Repos to fetch push events for. Start with the dotnet 4; vcpkg has heavy
-# bot/auto-rebase activity that would skew the metric and is intentionally
-# excluded from comparison.
+# Repos to fetch push events for. This tracks the repos currently used for
+# push/review comparisons; vcpkg has heavy bot/auto-rebase activity that would
+# skew the metric and is intentionally excluded.
 DEFAULT_REPOS = [
     "dotnet/runtime",
     "dotnet/roslyn",
