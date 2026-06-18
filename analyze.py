@@ -4110,19 +4110,35 @@ def _set_review_month_zoom_xaxis(ax):
     ax.xaxis.set_minor_locator(mdates.DayLocator(interval=1))
 
 
-def _review_effective_today(all_items, month_zoom):
-    today = datetime.now().date()
-    if not month_zoom:
-        return today
+_REVIEW_LATEST_CREATED_CACHE = {}
+
+
+def _review_latest_created(all_items):
+    cache_key = id(all_items)
+    cached = _REVIEW_LATEST_CREATED_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     valid_created_dates = [
         d
-        for items in all_items.values()
+        for repo in REVIEW_CHART_REPOS
+        for items in [all_items.get(repo)]
+        if items
         for it in items
         if it.get("is_pr") and it.get("merged_at") and it.get("created_at")
         for d in [parse_date(it.get("created_at"))]
         if d is not None
     ]
     latest_created = max(valid_created_dates, default=None)
+    _REVIEW_LATEST_CREATED_CACHE[cache_key] = latest_created
+    return latest_created
+
+
+def _review_effective_today(all_items, month_zoom):
+    today = datetime.now().date()
+    if not month_zoom:
+        return today
+    latest_created = _review_latest_created(all_items)
     if latest_created is None:
         return today
     # Keep the same "exclude partial today" behavior while anchoring to data freshness.
@@ -4541,9 +4557,11 @@ def chart_review_suggestion_rate(
             w += step
         if not weeks_x:
             continue
-        marker = "o" if month_zoom else None
-        ax.plot(weeks_x, pcts, color=get_color(repo), label=get_short(repo),
-                linewidth=2, alpha=0.85, marker=marker, markersize=3 if marker else None)
+        plot_kwargs = dict(color=get_color(repo), label=get_short(repo), linewidth=2, alpha=0.85)
+        if month_zoom:
+            plot_kwargs["marker"] = "o"
+            plot_kwargs["markersize"] = 3
+        ax.plot(weeks_x, pcts, **plot_kwargs)
         visible_data.append(pcts)
         line_ends.append((weeks_x, pcts, get_short(repo), get_color(repo)))
 
