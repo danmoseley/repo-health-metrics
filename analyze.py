@@ -5018,7 +5018,7 @@ def chart_review_copilot_comment_density_last_month(all_items, review_data, outp
         output_file="review_copilot_comment_density_last_month.png",
         month_zoom=True,
         insight_lines=[
-            "Last-month zoom of Copilot comments per 100 LOC on reviewed PRs",
+            "Last-month zoom of Copilot review comments per 100 LOC on reviewed PRs",
             "Rising values mean denser Copilot feedback; falling means lighter touch",
             "This short view is tuned for week-over-week runtime swings",
             "Interpret with coverage chart to separate intensity from adoption",
@@ -5034,7 +5034,7 @@ def chart_review_suggestion_rate_last_month(all_items, review_data, output_dir):
         output_file="review_suggestion_rate_last_month.png",
         month_zoom=True,
         insight_lines=[
-            "Last-month zoom of the % of Copilot comments that include code suggestions",
+            "Last-month zoom of the % of Copilot review comments that include code suggestions",
             "Higher values mean more comments are directly actionable",
             "Week-over-week shifts can indicate prompt/model behavior changes",
             "Volatile series — watch for sustained movement over multiple weeks",
