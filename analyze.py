@@ -2261,16 +2261,15 @@ def chart_copilot_merge_success(all_items, output_dir):
     print(f"  {path}")
 
 
-def chart_copilot_time_to_merge(all_items, output_dir):
-    """Line chart: monthly median TTM for Copilot vs human PRs (runtime only)."""
+def _chart_copilot_time_to_merge_for_repo(all_items, output_dir, repo, output_file):
+    """Line chart: monthly median TTM for Copilot vs human PRs for one repo."""
     from datetime import date as _date
     today = _date.today()
     coverage_cutoff = today - timedelta(days=365)
     MIN_MERGED_MONTH = 10  # minimum merged PRs per month to plot a point
 
-    repo = "dotnet/runtime"
     if repo not in all_items:
-        print("  (skipping copilot TTM trend — runtime not in data)")
+        print(f"  (skipping copilot TTM trend — {repo} not in data)")
         return
 
     items = all_items[repo]
@@ -2343,7 +2342,7 @@ def chart_copilot_time_to_merge(all_items, output_dir):
                 p50_list.append(float("nan"))
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    setup_axes(ax, "Median Time-to-Merge: Copilot vs Human — dotnet/runtime (Monthly)", "Days")
+    setup_axes(ax, f"Median Time-to-Merge: Copilot vs Human — {repo} (Monthly)", "Days")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1f}"))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=8))
     # Override default year-based ticks — our range is ~12 months
@@ -2369,10 +2368,30 @@ def chart_copilot_time_to_merge(all_items, output_dir):
     ])
     _pad_date_xlim(fig)
     fig.tight_layout()
-    path = os.path.join(output_dir, "copilot_time_to_merge.png")
+    path = os.path.join(output_dir, output_file)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"  {path}")
+
+
+def chart_copilot_time_to_merge(all_items, output_dir):
+    """Line chart: monthly median TTM for Copilot vs human PRs (runtime only)."""
+    _chart_copilot_time_to_merge_for_repo(
+        all_items,
+        output_dir,
+        "dotnet/runtime",
+        "copilot_time_to_merge.png",
+    )
+
+
+def chart_copilot_time_to_merge_azure(all_items, output_dir):
+    """Line chart: monthly median TTM for Copilot vs human PRs (Azure repo only)."""
+    _chart_copilot_time_to_merge_for_repo(
+        all_items,
+        output_dir,
+        "Azure/azure-sdk-for-js",
+        "copilot_time_to_merge_azure.png",
+    )
 
 
 def chart_issue_close_rate(all_series, output_dir):
@@ -6377,6 +6396,7 @@ def main():
             chart_copilot_adoption(all_items, output_dir)
             chart_copilot_merge_success(all_items, output_dir)
             chart_copilot_time_to_merge(all_items, output_dir)
+            chart_copilot_time_to_merge_azure(all_items, output_dir)
             chart_issue_community(all_items, output_dir)
             chart_community_issue_volume(all_items, output_dir)
             chart_community_issue_share(all_items, output_dir)
