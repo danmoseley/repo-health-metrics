@@ -220,6 +220,35 @@ def compare_charts(baseline_ref: str) -> list[str]:
     return problems
 
 
+def compare_rowcount(baseline_ref: str, repo_relative_path: str) -> list[str]:
+    """Flag if an append-only data CSV lost rows versus the committed baseline.
+
+    These tables only ever grow, so a smaller row count signals a truncated or
+    corrupted export. Counting with csv.reader (not raw lines) is robust to
+    embedded newlines in quoted fields; the header is counted in both sides, so
+    the comparison stays consistent.
+    """
+    problems: list[str] = []
+    baseline_file = open_csv_from_git(baseline_ref, repo_relative_path)
+    if baseline_file is None:
+        print(f"No baseline {repo_relative_path} found; skipping row-count check.")
+        return problems
+    with baseline_file:
+        baseline_total = sum(1 for _ in csv.reader(baseline_file))
+
+    current_path = Path(repo_relative_path)
+    if not current_path.exists():
+        problems.append(f"Current {repo_relative_path} is missing (baseline had {baseline_total} lines)")
+        return problems
+    with open_csv_from_worktree(current_path) as current_file:
+        current_total = sum(1 for _ in csv.reader(current_file))
+
+    print(f"{repo_relative_path}: lines {baseline_total:,} -> {current_total:,}")
+    if current_total < baseline_total:
+        problems.append(f"{repo_relative_path} row count regressed: {baseline_total} -> {current_total}")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sanity-check refreshed outputs against the committed baseline.")
     parser.add_argument("--baseline-ref", default="HEAD", help="Git ref to compare against (default: HEAD)")
@@ -233,6 +262,17 @@ def main() -> int:
     problems.extend(compare_progress_csv(args.baseline_ref, "data/fetch_progress.csv", "sync_started_at"))
     problems.extend(compare_progress_csv(args.baseline_ref, "data/pr_push_progress.csv", "last_fetched_at"))
     problems.extend(compare_progress_csv(args.baseline_ref, "data/review_fetch_progress.csv", "fetched_at"))
+    # Append-only data tables: a shrinking row count means a truncated/corrupt
+    # export, which must not be merged unattended.
+    for data_csv in (
+        "data/pr_first_comment.csv",
+        "data/pr_push_events.csv.gz",
+        "data/pr_reviews.csv.gz",
+        "data/pr_review_comments.csv.gz",
+        "data/pr_commit_stats.csv.gz",
+        "data/pr_copilot_issue_comments.csv",
+    ):
+        problems.extend(compare_rowcount(args.baseline_ref, data_csv))
     problems.extend(compare_charts(args.baseline_ref))
 
     if problems:

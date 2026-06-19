@@ -4,4 +4,6 @@ Sustainability and health metrics for large GitHub repositories, comparing dotne
 
 **[View the charts](https://danmoseley.github.io/repo-health-metrics/)**
 
+**[View the last known good charts](https://danmoseley.github.io/repo-health-metrics/last-known-good/)** — a frozen snapshot that stays valid even if an automated refresh ever goes wrong.
+
 To restore data and generate charts on a fresh clone: `python load_csv.py && python analyze.py`. See `.github/copilot-instructions.md` for data preservation workflow details.
