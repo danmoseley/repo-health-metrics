@@ -238,12 +238,12 @@ def compare_rowcount(baseline_ref: str, repo_relative_path: str) -> list[str]:
 
     current_path = Path(repo_relative_path)
     if not current_path.exists():
-        problems.append(f"Current {repo_relative_path} is missing (baseline had {baseline_total} lines)")
+        problems.append(f"Current {repo_relative_path} is missing (baseline had {baseline_total} rows)")
         return problems
     with open_csv_from_worktree(current_path) as current_file:
         current_total = sum(1 for _ in csv.reader(current_file))
 
-    print(f"{repo_relative_path}: lines {baseline_total:,} -> {current_total:,}")
+    print(f"{repo_relative_path}: rows {baseline_total:,} -> {current_total:,}")
     if current_total < baseline_total:
         problems.append(f"{repo_relative_path} row count regressed: {baseline_total} -> {current_total}")
     return problems

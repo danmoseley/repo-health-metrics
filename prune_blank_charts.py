@@ -25,7 +25,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 def find_blank_pngs(png_paths: List[Path], min_ink_fraction: float = 0.001) -> List[Tuple[Path, float]]:
@@ -76,16 +76,25 @@ def find_blank_pngs(png_paths: List[Path], min_ink_fraction: float = 0.001) -> L
     return blank
 
 
-def tracked_at(ref: str, prefix: str) -> set[str]:
+def is_tracked(ref: str, repo_relative_path: str) -> Optional[bool]:
+    """Whether a path exists in `ref`.
+
+    Returns True if tracked, False if not tracked, and None if git could not
+    determine the status (e.g. a bad ref). `git ls-tree <ref> -- <path>` exits 0
+    in both the tracked and untracked cases (printing the entry only when
+    tracked), so a non-zero exit signals a genuine error rather than "absent".
+    Callers treat None conservatively and avoid deleting the file.
+    """
     result = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", ref, prefix],
+        ["git", "ls-tree", ref, "--", repo_relative_path],
         capture_output=True,
         check=False,
         text=True,
     )
     if result.returncode != 0:
-        return set()
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+        print(f"Warning: could not check git status of {repo_relative_path} at {ref}: {result.stderr.strip()}")
+        return None
+    return bool(result.stdout.strip())
 
 
 def main() -> int:
@@ -108,11 +117,24 @@ def main() -> int:
         print(f"Checked {len(png_paths)} chart(s); none are blank.")
         return 0
 
-    committed = tracked_at(args.baseline_ref, args.charts_dir)
     report_lines: List[str] = []
     for path, ink_fraction in blanks:
         posix = path.as_posix()
-        if posix in committed:
+        tracked = is_tracked(args.baseline_ref, posix)
+        if tracked is None:
+            # Couldn't determine whether the chart is committed. Deleting could
+            # lose a real chart (and stage its deletion), so leave it in place
+            # and flag it loudly instead.
+            print(
+                f"::warning::Chart {posix} rendered blank (ink={ink_fraction:.4%}) but its "
+                f"baseline status could not be determined from {args.baseline_ref}; left as-is."
+            )
+            report_lines.append(
+                f"- `{posix}` rendered blank (ink {ink_fraction:.4%}); baseline status unknown, "
+                "left as-is — please check this chart."
+            )
+            continue
+        if tracked:
             restored = subprocess.run(
                 ["git", "checkout", args.baseline_ref, "--", posix],
                 capture_output=True,
