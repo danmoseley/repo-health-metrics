@@ -4145,6 +4145,7 @@ dotnet/maui,36008,2026-06-19T15:52:58Z,kubaflo
 dotnet/maui,36016,2026-06-19T13:21:18Z,kubaflo
 dotnet/maui,36020,2026-06-19T12:55:21Z,kubaflo
 dotnet/maui,36026,2026-06-19T14:43:26Z,kubaflo
+dotnet/maui,36029,2026-06-19T22:31:24Z,MauiBot
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
 dotnet/roslyn,44649,2025-10-23T16:33:46Z,333fred
@@ -6140,6 +6141,7 @@ dotnet/roslyn,84156,2026-06-17T08:04:42Z,jjonescz
 dotnet/roslyn,84159,2026-06-16T22:24:19Z,davidwengier
 dotnet/roslyn,84161,2026-06-18T00:05:21Z,tmat
 dotnet/roslyn,84165,2026-06-17T05:11:55Z,davidwengier
+dotnet/roslyn,84166,2026-06-19T23:54:33Z,ToddGrun
 dotnet/roslyn,84167,2026-06-17T08:28:30Z,CyrusNajmabadi
 dotnet/roslyn,84170,2026-06-18T16:31:02Z,akhera99
 dotnet/roslyn,84171,2026-06-17T10:38:46Z,CyrusNajmabadi
@@ -6154,7 +6156,10 @@ dotnet/roslyn,84194,2026-06-18T22:24:27Z,davidwengier
 dotnet/roslyn,84195,2026-06-18T23:14:58Z,jasonmalinowski
 dotnet/roslyn,84196,2026-06-18T19:25:45Z,RikkiGibson
 dotnet/roslyn,84201,2026-06-19T00:35:49Z,dibarbet
+dotnet/roslyn,84203,2026-06-20T00:11:46Z,ToddGrun
 dotnet/roslyn,84205,2026-06-19T02:59:20Z,RikkiGibson
+dotnet/roslyn,84216,2026-06-19T21:48:50Z,333fred
+dotnet/roslyn,84217,2026-06-19T20:45:09Z,333fred
 dotnet/runtime,76017,2025-04-02T02:46:41Z,amanasifkhalid
 dotnet/runtime,82765,2025-03-05T13:52:54Z,stephentoub
 dotnet/runtime,85951,2025-03-19T06:19:17Z,IDisposable
@@ -13711,6 +13716,7 @@ microsoft/aspire,18279,2026-06-18T06:26:34Z,Falco20019
 microsoft/aspire,18291,2026-06-17T23:19:48Z,davidfowl
 microsoft/aspire,18292,2026-06-18T16:21:48Z,aspire-repo-bot[bot]
 microsoft/aspire,18293,2026-06-18T08:24:33Z,davidfowl
+microsoft/aspire,18294,2026-06-19T23:00:47Z,danegsta
 microsoft/aspire,18296,2026-06-18T00:19:43Z,JamesNK
 microsoft/aspire,18298,2026-06-18T01:06:07Z,JamesNK
 microsoft/aspire,18304,2026-06-18T03:46:12Z,aspire-repo-bot[bot]
@@ -13727,6 +13733,12 @@ microsoft/aspire,18328,2026-06-19T01:18:49Z,radical
 microsoft/aspire,18331,2026-06-19T14:48:50Z,DamianEdwards
 microsoft/aspire,18332,2026-06-19T16:31:54Z,aspire-repo-bot[bot]
 microsoft/aspire,18343,2026-06-19T19:46:28Z,aspire-repo-bot[bot]
+microsoft/aspire,18346,2026-06-20T01:59:02Z,aspire-repo-bot[bot]
+microsoft/aspire,18349,2026-06-20T02:18:44Z,radical
+microsoft/aspire,18351,2026-06-19T23:51:19Z,radical
+microsoft/aspire,18355,2026-06-20T01:46:55Z,aspire-repo-bot[bot]
+microsoft/aspire,18357,2026-06-20T02:04:27Z,radical
+microsoft/aspire,18358,2026-06-20T03:20:23Z,adamint
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
