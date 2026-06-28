@@ -4200,12 +4200,16 @@ dotnet/maui,36133,2026-06-25T14:16:24Z,kubaflo
 dotnet/maui,36134,2026-06-25T14:05:10Z,sheiksyedm
 dotnet/maui,36139,2026-06-25T18:32:24Z,PureWeen
 dotnet/maui,36140,2026-06-25T19:50:46Z,kubaflo
+dotnet/maui,36150,2026-06-27T17:31:21Z,kubaflo
 dotnet/maui,36152,2026-06-26T09:46:53Z,sheiksyedm
 dotnet/maui,36153,2026-06-26T17:52:04Z,mattleibow
 dotnet/maui,36159,2026-06-26T15:15:16Z,sheiksyedm
 dotnet/maui,36161,2026-06-26T15:15:47Z,sheiksyedm
+dotnet/maui,36164,2026-06-27T17:25:03Z,kubaflo
 dotnet/maui,36169,2026-06-26T15:07:35Z,sheiksyedm
+dotnet/maui,36170,2026-06-27T17:24:19Z,kubaflo
 dotnet/maui,36172,2026-06-26T18:31:51Z,kubaflo
+dotnet/maui,36174,2026-06-27T17:20:10Z,kubaflo
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
 dotnet/roslyn,44649,2025-10-23T16:33:46Z,333fred
@@ -10938,6 +10942,7 @@ dotnet/runtime,129870,2026-06-26T01:22:22Z,JulieLeeMSFT
 dotnet/runtime,129873,2026-06-26T14:46:12Z,mangod9
 dotnet/runtime,129899,2026-06-27T01:07:10Z,steveisok
 dotnet/runtime,129906,2026-06-27T03:47:17Z,jkotas
+dotnet/runtime,129933,2026-06-28T00:39:34Z,jkotas
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -14190,6 +14195,7 @@ microsoft/aspire,18514,2026-06-26T19:29:01Z,DamianEdwards
 microsoft/aspire,18517,2026-06-26T23:17:16Z,ellahathaway
 microsoft/aspire,18522,2026-06-26T23:26:21Z,aspire-repo-bot[bot]
 microsoft/aspire,18523,2026-06-26T23:18:31Z,aspire-repo-bot[bot]
+microsoft/aspire,18532,2026-06-28T00:07:38Z,davidfowl
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
