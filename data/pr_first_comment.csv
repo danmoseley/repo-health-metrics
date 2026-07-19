@@ -4419,7 +4419,14 @@ dotnet/maui,36616,2026-07-16T14:03:39Z,kubaflo
 dotnet/maui,36619,2026-07-17T13:15:29Z,kubaflo
 dotnet/maui,36630,2026-07-17T14:28:35Z,kubaflo
 dotnet/maui,36631,2026-07-17T13:28:12Z,sheiksyedm
+dotnet/maui,36633,2026-07-18T12:15:07Z,MauiBot
 dotnet/maui,36639,2026-07-17T20:01:07Z,kubaflo
+dotnet/maui,36640,2026-07-18T14:49:07Z,kubaflo
+dotnet/maui,36642,2026-07-18T10:30:43Z,kubaflo
+dotnet/maui,36653,2026-07-18T15:54:28Z,MauiBot
+dotnet/maui,36654,2026-07-18T17:45:37Z,MauiBot
+dotnet/maui,36655,2026-07-18T17:06:59Z,MauiBot
+dotnet/maui,36657,2026-07-18T22:49:32Z,MauiBot
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
 dotnet/roslyn,44649,2025-10-23T16:33:46Z,333fred
@@ -12025,6 +12032,11 @@ dotnet/runtime,130978,2026-07-17T16:35:47Z,MichalPetryka
 dotnet/runtime,130985,2026-07-17T18:13:20Z,jakobbotsch
 dotnet/runtime,130994,2026-07-17T21:07:35Z,MichalPetryka
 dotnet/runtime,131000,2026-07-17T22:02:21Z,adamperlin
+dotnet/runtime,131007,2026-07-19T04:10:52Z,teo-tsirpanis
+dotnet/runtime,131013,2026-07-18T13:14:56Z,jkotas
+dotnet/runtime,131017,2026-07-18T20:20:50Z,MichalPetryka
+dotnet/runtime,131018,2026-07-18T21:27:52Z,MichalPetryka
+dotnet/runtime,131019,2026-07-19T00:54:17Z,PranavSenthilnathan
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -15360,8 +15372,10 @@ microsoft/aspire,18799,2026-07-15T22:54:23Z,aspire-repo-bot[bot]
 microsoft/aspire,18804,2026-07-16T20:32:28Z,aspire-repo-bot[bot]
 microsoft/aspire,18806,2026-07-17T02:18:48Z,aspire-repo-bot[bot]
 microsoft/aspire,18807,2026-07-17T02:14:19Z,aspire-repo-bot[bot]
+microsoft/aspire,18810,2026-07-18T11:31:13Z,IEvangelist
 microsoft/aspire,18811,2026-07-17T19:06:43Z,aspire-repo-bot[bot]
 microsoft/aspire,18813,2026-07-18T00:07:56Z,aspire-repo-bot[bot]
+microsoft/aspire,18814,2026-07-18T11:31:15Z,IEvangelist
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
@@ -17646,3 +17660,4 @@ microsoft/vcpkg,52934,2026-07-16T14:19:56Z,MichalPetryka
 microsoft/vcpkg,52935,2026-07-17T02:59:50Z,vicroms
 microsoft/vcpkg,52936,2026-07-17T02:34:08Z,vicroms
 microsoft/vcpkg,52938,2026-07-17T07:09:19Z,SunBlack
+microsoft/vcpkg,52950,2026-07-18T09:50:24Z,vicroms
