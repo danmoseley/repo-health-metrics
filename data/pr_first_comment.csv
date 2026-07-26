@@ -1486,6 +1486,7 @@ Azure/azure-sdk-for-js,39373,2026-07-23T08:53:41Z,kazrael2119
 Azure/azure-sdk-for-js,39376,2026-07-23T09:00:34Z,kazrael2119
 Azure/azure-sdk-for-js,39380,2026-07-23T16:53:29Z,nick863
 Azure/azure-sdk-for-js,39390,2026-07-24T17:51:27Z,jeremymeng
+Azure/azure-sdk-for-js,39404,2026-07-26T01:01:52Z,microsoft-github-policy-service[bot]
 dotnet/maui,12910,2025-04-08T14:21:39Z,jfversluis
 dotnet/maui,13114,2025-08-04T18:57:17Z,PureWeen
 dotnet/maui,13725,2025-08-04T18:57:23Z,PureWeen
@@ -4486,6 +4487,8 @@ dotnet/maui,36772,2026-07-24T18:15:20Z,kubaflo
 dotnet/maui,36773,2026-07-24T19:07:10Z,PureWeen
 dotnet/maui,36774,2026-07-24T20:55:57Z,kubaflo
 dotnet/maui,36775,2026-07-24T21:33:11Z,kubaflo
+dotnet/maui,36776,2026-07-25T10:57:45Z,MauiBot
+dotnet/maui,36785,2026-07-25T16:31:14Z,PureWeen
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
 dotnet/roslyn,44649,2025-10-23T16:33:46Z,333fred
@@ -12267,11 +12270,15 @@ dotnet/runtime,131332,2026-07-24T16:57:54Z,vcsjones
 dotnet/runtime,131334,2026-07-24T23:49:51Z,noahfalk
 dotnet/runtime,131336,2026-07-24T19:18:45Z,rcj1
 dotnet/runtime,131338,2026-07-25T04:10:09Z,rcj1
+dotnet/runtime,131345,2026-07-25T18:32:28Z,jkotas
 dotnet/runtime,131346,2026-07-24T20:52:21Z,jkotas
 dotnet/runtime,131347,2026-07-24T22:45:37Z,MichalPetryka
 dotnet/runtime,131348,2026-07-24T21:14:01Z,elinor-fung
+dotnet/runtime,131352,2026-07-26T04:00:15Z,Clockwork-Muse
 dotnet/runtime,131353,2026-07-24T23:48:17Z,lewing
 dotnet/runtime,131358,2026-07-25T02:12:32Z,tarekgh
+dotnet/runtime,131369,2026-07-25T18:06:43Z,SingleAccretion
+dotnet/runtime,131374,2026-07-25T23:45:39Z,AndyAyersMS
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
