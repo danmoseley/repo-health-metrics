@@ -4469,6 +4469,7 @@ dotnet/maui,36559,2026-07-14T14:18:38Z,kubaflo
 dotnet/maui,36561,2026-07-14T10:39:47Z,vishnumenon2684
 dotnet/maui,36564,2026-07-14T14:18:45Z,kubaflo
 dotnet/maui,36566,2026-07-14T13:04:40Z,kubaflo
+dotnet/maui,36568,2026-08-08T18:10:37Z,kubaflo
 dotnet/maui,36569,2026-07-29T20:54:56Z,PureWeen
 dotnet/maui,36571,2026-07-16T19:51:18Z,PureWeen
 dotnet/maui,36572,2026-07-15T16:47:15Z,kubaflo
@@ -6835,6 +6836,7 @@ dotnet/roslyn,84794,2026-08-06T22:00:14Z,akhera99
 dotnet/roslyn,84804,2026-08-07T18:54:19Z,chsienki
 dotnet/roslyn,84808,2026-08-07T23:19:34Z,davidwengier
 dotnet/roslyn,84813,2026-08-08T02:17:42Z,davidwengier
+dotnet/roslyn,84816,2026-08-08T11:37:13Z,CyrusNajmabadi
 dotnet/runtime,76017,2025-04-02T02:46:41Z,amanasifkhalid
 dotnet/runtime,78746,2026-06-12T15:28:23Z,jkotas
 dotnet/runtime,82765,2025-03-05T13:52:54Z,stephentoub
@@ -12732,6 +12734,7 @@ dotnet/runtime,131972,2026-08-07T13:37:54Z,tannergooding
 dotnet/runtime,131975,2026-08-07T22:22:12Z,steveisok
 dotnet/runtime,131976,2026-08-07T02:11:27Z,shushanhf
 dotnet/runtime,131978,2026-08-07T16:47:31Z,adamperlin
+dotnet/runtime,131984,2026-08-08T14:51:39Z,am11
 dotnet/runtime,131985,2026-08-07T11:29:50Z,jakobbotsch
 dotnet/runtime,131987,2026-08-07T09:14:26Z,noahfalk
 dotnet/runtime,131991,2026-08-07T10:47:12Z,EgorBo
@@ -12743,6 +12746,10 @@ dotnet/runtime,132013,2026-08-07T21:02:40Z,alinpahontu2912
 dotnet/runtime,132014,2026-08-07T22:43:46Z,jkotas
 dotnet/runtime,132018,2026-08-08T03:49:16Z,jkoritzinsky
 dotnet/runtime,132028,2026-08-08T00:06:34Z,hoyosjs
+dotnet/runtime,132032,2026-08-08T05:13:27Z,jkotas
+dotnet/runtime,132033,2026-08-08T07:24:31Z,MichalPetryka
+dotnet/runtime,132040,2026-08-09T02:13:39Z,AaronRobinsonMSFT
+dotnet/runtime,132042,2026-08-08T20:49:50Z,teo-tsirpanis
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -16036,6 +16043,7 @@ microsoft/aspire,18594,2026-07-29T08:25:21Z,JamesNK
 microsoft/aspire,18595,2026-07-01T16:42:12Z,ellahathaway
 microsoft/aspire,18598,2026-07-02T00:06:36Z,adamint
 microsoft/aspire,18600,2026-08-04T04:44:39Z,sebastienros
+microsoft/aspire,18602,2026-08-09T00:45:03Z,davidfowl
 microsoft/aspire,18604,2026-07-02T00:42:57Z,davidfowl
 microsoft/aspire,18606,2026-08-04T16:30:15Z,IEvangelist
 microsoft/aspire,18611,2026-07-03T17:50:23Z,davidfowl
@@ -16194,6 +16202,8 @@ microsoft/aspire,19118,2026-08-07T15:37:01Z,adamint
 microsoft/aspire,19123,2026-08-07T15:46:14Z,adamint
 microsoft/aspire,19126,2026-08-07T16:48:52Z,ellahathaway
 microsoft/aspire,19135,2026-08-07T16:47:28Z,afscrome
+microsoft/aspire,19155,2026-08-08T11:37:17Z,adamint
+microsoft/aspire,19160,2026-08-08T11:36:30Z,adamint
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
@@ -18623,4 +18633,10 @@ microsoft/vcpkg,53277,2026-08-06T19:44:35Z,dg0yt
 microsoft/vcpkg,53280,2026-08-07T21:57:49Z,BillyONeal
 microsoft/vcpkg,53282,2026-08-08T04:08:36Z,BillyONeal
 microsoft/vcpkg,53288,2026-08-07T06:19:16Z,JackBoosY
+microsoft/vcpkg,53300,2026-08-08T04:54:49Z,BillyONeal
+microsoft/vcpkg,53303,2026-08-08T04:58:40Z,BillyONeal
 microsoft/vcpkg,53308,2026-08-07T15:20:59Z,microsoft-github-policy-service[bot]
+microsoft/vcpkg,53310,2026-08-08T11:00:39Z,dg0yt
+microsoft/vcpkg,53312,2026-08-08T05:06:20Z,BillyONeal
+microsoft/vcpkg,53316,2026-08-08T11:25:37Z,dg0yt
+microsoft/vcpkg,53317,2026-08-08T05:41:52Z,BillyONeal
