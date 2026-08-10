@@ -4658,6 +4658,7 @@ dotnet/maui,37182,2026-08-07T13:05:42Z,vishnumenon2684
 dotnet/maui,37184,2026-08-07T12:59:54Z,sheiksyedm
 dotnet/maui,37186,2026-08-07T14:42:27Z,kubaflo
 dotnet/maui,37194,2026-08-07T22:25:19Z,kubaflo
+dotnet/maui,37232,2026-08-09T13:46:11Z,MauiBot
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
 dotnet/roslyn,44649,2025-10-23T16:33:46Z,333fred
@@ -12665,6 +12666,7 @@ dotnet/runtime,131729,2026-08-03T16:53:07Z,jkoritzinsky
 dotnet/runtime,131732,2026-08-03T19:27:01Z,tarekgh
 dotnet/runtime,131735,2026-08-06T14:05:29Z,svick
 dotnet/runtime,131740,2026-08-03T14:19:31Z,jkotas
+dotnet/runtime,131745,2026-08-10T01:06:06Z,jkotas
 dotnet/runtime,131746,2026-08-04T15:23:28Z,jakobbotsch
 dotnet/runtime,131750,2026-08-03T15:22:45Z,jakobbotsch
 dotnet/runtime,131753,2026-08-04T01:51:45Z,autocarl
@@ -12750,6 +12752,8 @@ dotnet/runtime,132032,2026-08-08T05:13:27Z,jkotas
 dotnet/runtime,132033,2026-08-08T07:24:31Z,MichalPetryka
 dotnet/runtime,132040,2026-08-09T02:13:39Z,AaronRobinsonMSFT
 dotnet/runtime,132042,2026-08-08T20:49:50Z,teo-tsirpanis
+dotnet/runtime,132050,2026-08-09T13:21:25Z,teo-tsirpanis
+dotnet/runtime,132057,2026-08-09T14:33:45Z,jkotas
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -16204,6 +16208,7 @@ microsoft/aspire,19126,2026-08-07T16:48:52Z,ellahathaway
 microsoft/aspire,19135,2026-08-07T16:47:28Z,afscrome
 microsoft/aspire,19155,2026-08-08T11:37:17Z,adamint
 microsoft/aspire,19160,2026-08-08T11:36:30Z,adamint
+microsoft/aspire,19178,2026-08-09T08:33:58Z,afscrome
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
@@ -18633,6 +18638,7 @@ microsoft/vcpkg,53277,2026-08-06T19:44:35Z,dg0yt
 microsoft/vcpkg,53280,2026-08-07T21:57:49Z,BillyONeal
 microsoft/vcpkg,53282,2026-08-08T04:08:36Z,BillyONeal
 microsoft/vcpkg,53288,2026-08-07T06:19:16Z,JackBoosY
+microsoft/vcpkg,53299,2026-08-10T00:31:00Z,BillyONeal
 microsoft/vcpkg,53300,2026-08-08T04:54:49Z,BillyONeal
 microsoft/vcpkg,53303,2026-08-08T04:58:40Z,BillyONeal
 microsoft/vcpkg,53308,2026-08-07T15:20:59Z,microsoft-github-policy-service[bot]
