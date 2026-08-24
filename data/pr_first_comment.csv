@@ -4847,6 +4847,8 @@ dotnet/maui,37741,2026-08-22T14:34:30Z,kubaflo
 dotnet/maui,37742,2026-08-22T14:34:26Z,kubaflo
 dotnet/maui,37746,2026-08-22T15:21:27Z,PureWeen
 dotnet/maui,37747,2026-08-22T18:29:03Z,kubaflo
+dotnet/maui,37750,2026-08-23T11:05:52Z,MauiBot
+dotnet/maui,37755,2026-08-23T09:59:46Z,kubaflo
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,22984,2026-08-20T21:24:45Z,benmvp
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
@@ -12826,6 +12828,7 @@ dotnet/runtime,131458,2026-07-28T11:59:13Z,jkotas
 dotnet/runtime,131461,2026-07-30T09:21:26Z,kotlarmilos
 dotnet/runtime,131467,2026-07-28T14:04:43Z,jkotas
 dotnet/runtime,131470,2026-07-28T22:03:12Z,JulieLeeMSFT
+dotnet/runtime,131474,2026-08-24T03:50:31Z,MichalStrehovsky
 dotnet/runtime,131475,2026-08-06T14:05:39Z,svick
 dotnet/runtime,131480,2026-07-28T22:24:41Z,tarekgh
 dotnet/runtime,131481,2026-07-29T05:15:08Z,jkotas
@@ -13247,6 +13250,8 @@ dotnet/runtime,132651,2026-08-22T13:10:32Z,akoeplinger
 dotnet/runtime,132652,2026-08-22T13:11:15Z,akoeplinger
 dotnet/runtime,132658,2026-08-22T15:37:43Z,jkotas
 dotnet/runtime,132665,2026-08-23T01:04:22Z,jkotas
+dotnet/runtime,132675,2026-08-23T20:40:35Z,teo-tsirpanis
+dotnet/runtime,132676,2026-08-24T01:22:41Z,MichalStrehovsky
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -16820,6 +16825,7 @@ microsoft/aspire,19414,2026-08-19T20:47:57Z,ellahathaway
 microsoft/aspire,19417,2026-08-15T20:10:52Z,aspire-repo-bot[bot]
 microsoft/aspire,19426,2026-08-17T02:43:27Z,aspire-repo-bot[bot]
 microsoft/aspire,19427,2026-08-17T22:40:36Z,aspire-repo-bot[bot]
+microsoft/aspire,19430,2026-08-24T04:20:49Z,JamesNK
 microsoft/aspire,19432,2026-08-17T22:20:58Z,adamint
 microsoft/aspire,19438,2026-08-17T18:41:59Z,aspire-repo-bot[bot]
 microsoft/aspire,19440,2026-08-17T21:10:11Z,aspire-repo-bot[bot]
@@ -16838,6 +16844,7 @@ microsoft/aspire,19506,2026-08-19T21:48:12Z,joperezr
 microsoft/aspire,19508,2026-08-19T23:17:35Z,aspire-repo-bot[bot]
 microsoft/aspire,19510,2026-08-20T21:03:07Z,Pilchie
 microsoft/aspire,19513,2026-08-20T11:21:38Z,adamint
+microsoft/aspire,19520,2026-08-24T04:15:18Z,JamesNK
 microsoft/aspire,19524,2026-08-20T04:38:54Z,joperezr
 microsoft/aspire,19525,2026-08-20T22:57:16Z,aspire-repo-bot[bot]
 microsoft/aspire,19527,2026-08-20T03:13:43Z,danegsta
@@ -16848,6 +16855,7 @@ microsoft/aspire,19539,2026-08-21T04:58:24Z,adamint
 microsoft/aspire,19541,2026-08-21T05:29:44Z,adamint
 microsoft/aspire,19552,2026-08-21T22:20:59Z,aspire-repo-bot[bot]
 microsoft/aspire,19554,2026-08-20T23:33:57Z,aspire-repo-bot[bot]
+microsoft/aspire,19555,2026-08-24T02:24:06Z,mitchdenny
 microsoft/aspire,19572,2026-08-21T20:03:30Z,adamint
 microsoft/aspire,19577,2026-08-21T19:53:09Z,adamint
 microsoft/aspire,19585,2026-08-22T01:22:28Z,sebastienros
