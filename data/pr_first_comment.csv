@@ -13596,6 +13596,7 @@ dotnet/runtime,132900,2026-08-28T21:00:49Z,jkoritzinsky
 dotnet/runtime,132901,2026-08-28T20:40:12Z,MihaZupan
 dotnet/runtime,132903,2026-08-28T23:06:56Z,PranavSenthilnathan
 dotnet/runtime,132904,2026-08-28T21:41:24Z,artl93
+dotnet/runtime,132908,2026-09-05T23:00:12Z,VSadov
 dotnet/runtime,132922,2026-08-29T22:23:55Z,agocke
 dotnet/runtime,132925,2026-08-29T22:36:41Z,jkotas
 dotnet/runtime,132926,2026-08-29T23:52:52Z,jkotas
@@ -13688,6 +13689,7 @@ dotnet/runtime,133215,2026-09-04T20:55:21Z,tannergooding
 dotnet/runtime,133218,2026-09-04T03:36:44Z,jkotas
 dotnet/runtime,133223,2026-09-04T08:48:25Z,akoeplinger
 dotnet/runtime,133227,2026-09-04T20:42:36Z,JulieLeeMSFT
+dotnet/runtime,133230,2026-09-05T21:17:06Z,AustinWise
 dotnet/runtime,133248,2026-09-04T17:20:46Z,jkoritzinsky
 dotnet/runtime,133249,2026-09-05T01:39:41Z,artl93
 dotnet/runtime,133250,2026-09-04T22:02:38Z,bartonjs
@@ -13697,7 +13699,14 @@ dotnet/runtime,133261,2026-09-04T22:26:47Z,jtschuster
 dotnet/runtime,133263,2026-09-05T01:27:01Z,agocke
 dotnet/runtime,133269,2026-09-04T22:41:27Z,davidwrighton
 dotnet/runtime,133274,2026-09-05T04:22:16Z,jkotas
+dotnet/runtime,133276,2026-09-05T18:48:02Z,lewing
+dotnet/runtime,133281,2026-09-05T17:25:23Z,lewing
 dotnet/runtime,133289,2026-09-05T03:36:49Z,jkotas
+dotnet/runtime,133304,2026-09-05T14:42:55Z,jkotas
+dotnet/runtime,133309,2026-09-05T18:19:42Z,jkoritzinsky
+dotnet/runtime,133310,2026-09-05T21:57:55Z,jkotas
+dotnet/runtime,133312,2026-09-05T21:55:21Z,jkotas
+dotnet/runtime,133313,2026-09-06T02:51:37Z,lewing
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -17400,6 +17409,7 @@ microsoft/aspire,19918,2026-09-03T22:17:12Z,aspire-repo-bot[bot]
 microsoft/aspire,19932,2026-09-04T14:17:42Z,JamesNK
 microsoft/aspire,19936,2026-09-04T16:31:31Z,sebastienros
 microsoft/aspire,19939,2026-09-04T19:24:16Z,radical
+microsoft/aspire,19961,2026-09-05T15:00:02Z,aradalvand
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
