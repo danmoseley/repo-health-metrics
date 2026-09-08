@@ -5027,6 +5027,13 @@ dotnet/maui,38197,2026-09-04T10:36:47Z,vishnumenon2684
 dotnet/maui,38204,2026-09-04T16:37:18Z,kubaflo
 dotnet/maui,38206,2026-09-04T16:36:37Z,kubaflo
 dotnet/maui,38218,2026-09-04T21:44:59Z,kubaflo
+dotnet/maui,38271,2026-09-07T13:54:32Z,kubaflo
+dotnet/maui,38274,2026-09-07T13:55:00Z,kubaflo
+dotnet/maui,38277,2026-09-07T16:07:11Z,kubaflo
+dotnet/maui,38280,2026-09-07T13:40:07Z,kubaflo
+dotnet/maui,38289,2026-09-07T15:57:01Z,kubaflo
+dotnet/maui,38299,2026-09-07T21:23:13Z,kubaflo
+dotnet/maui,38314,2026-09-08T07:06:54Z,vishnumenon2684
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,22984,2026-08-20T21:24:45Z,benmvp
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
@@ -5039,6 +5046,7 @@ dotnet/roslyn,57910,2025-11-27T20:22:27Z,misiek08
 dotnet/roslyn,58858,2025-08-04T22:08:20Z,jasonmalinowski
 dotnet/roslyn,61391,2025-03-15T06:26:40Z,akorchev
 dotnet/roslyn,66519,2023-03-14T18:01:13Z,jaredpar
+dotnet/roslyn,66607,2026-09-08T05:02:43Z,jnm2
 dotnet/roslyn,66983,2026-03-11T03:51:30Z,jaredpar
 dotnet/roslyn,68283,2023-05-26T14:20:51Z,AlekseyTs
 dotnet/roslyn,68527,2025-08-08T18:05:34Z,jaredpar
@@ -7312,6 +7320,7 @@ dotnet/roslyn,85154,2026-09-03T21:41:39Z,JoeRobich
 dotnet/roslyn,85157,2026-09-04T21:15:39Z,jasonmalinowski
 dotnet/roslyn,85161,2026-09-04T13:14:04Z,CyrusNajmabadi
 dotnet/roslyn,85162,2026-09-04T13:17:48Z,CyrusNajmabadi
+dotnet/roslyn,85201,2026-09-08T05:50:30Z,CyrusNajmabadi
 dotnet/runtime,76017,2025-04-02T02:46:41Z,amanasifkhalid
 dotnet/runtime,78746,2026-06-12T15:28:23Z,jkotas
 dotnet/runtime,82765,2025-03-05T13:52:54Z,stephentoub
@@ -12735,6 +12744,7 @@ dotnet/runtime,130567,2026-07-13T06:57:42Z,ilonatommy
 dotnet/runtime,130580,2026-07-12T16:58:11Z,jkotas
 dotnet/runtime,130581,2026-07-13T00:31:40Z,jkotas
 dotnet/runtime,130584,2026-07-13T00:27:42Z,jkotas
+dotnet/runtime,130588,2026-09-07T17:05:10Z,AndyAyersMS
 dotnet/runtime,130589,2026-07-12T23:11:26Z,AaronRobinsonMSFT
 dotnet/runtime,130590,2026-07-13T00:32:18Z,EgorBo
 dotnet/runtime,130593,2026-07-13T08:10:15Z,am11
@@ -13625,6 +13635,7 @@ dotnet/runtime,132999,2026-09-06T18:22:13Z,jkotas
 dotnet/runtime,133000,2026-09-02T08:49:25Z,maraf
 dotnet/runtime,133002,2026-09-02T08:09:18Z,akoeplinger
 dotnet/runtime,133011,2026-09-01T16:27:40Z,pavelsavara
+dotnet/runtime,133015,2026-09-07T09:46:02Z,akoeplinger
 dotnet/runtime,133016,2026-09-01T22:19:22Z,JulieLeeMSFT
 dotnet/runtime,133027,2026-09-01T18:14:19Z,eiriktsarpalis
 dotnet/runtime,133035,2026-09-02T16:25:18Z,ViveliDuCh
@@ -13639,6 +13650,7 @@ dotnet/runtime,133052,2026-09-02T18:39:10Z,AndyAyersMS
 dotnet/runtime,133053,2026-09-02T17:20:47Z,JulieLeeMSFT
 dotnet/runtime,133054,2026-09-02T13:45:41Z,steveisok
 dotnet/runtime,133055,2026-09-02T04:53:45Z,lewing
+dotnet/runtime,133058,2026-09-08T01:02:34Z,wfurt
 dotnet/runtime,133060,2026-09-02T19:59:49Z,jozkee
 dotnet/runtime,133062,2026-09-03T18:33:11Z,jozkee
 dotnet/runtime,133063,2026-09-02T12:45:51Z,tannergooding
@@ -13652,10 +13664,12 @@ dotnet/runtime,133084,2026-09-02T17:54:01Z,JulieLeeMSFT
 dotnet/runtime,133086,2026-09-02T16:38:46Z,pavelsavara
 dotnet/runtime,133093,2026-09-02T15:56:25Z,tannergooding
 dotnet/runtime,133097,2026-09-02T16:01:27Z,mrek-msft
+dotnet/runtime,133102,2026-09-07T09:42:21Z,akoeplinger
 dotnet/runtime,133103,2026-09-02T19:36:15Z,AndyAyersMS
 dotnet/runtime,133105,2026-09-02T17:31:58Z,agocke
 dotnet/runtime,133107,2026-09-02T17:23:43Z,AaronRobinsonMSFT
 dotnet/runtime,133111,2026-09-02T17:25:21Z,pavelsavara
+dotnet/runtime,133114,2026-09-07T09:40:56Z,akoeplinger
 dotnet/runtime,133117,2026-09-03T18:51:44Z,JulieLeeMSFT
 dotnet/runtime,133118,2026-09-03T18:42:47Z,JulieLeeMSFT
 dotnet/runtime,133122,2026-09-02T19:46:10Z,AndyAyersMS
@@ -13677,6 +13691,7 @@ dotnet/runtime,133174,2026-09-04T21:43:09Z,wfurt
 dotnet/runtime,133176,2026-09-04T22:43:59Z,jtschuster
 dotnet/runtime,133177,2026-09-04T20:27:12Z,JulieLeeMSFT
 dotnet/runtime,133179,2026-09-05T03:02:48Z,jkotas
+dotnet/runtime,133196,2026-09-07T09:35:32Z,akoeplinger
 dotnet/runtime,133198,2026-09-04T08:09:01Z,akoeplinger
 dotnet/runtime,133199,2026-09-04T18:23:35Z,wfurt
 dotnet/runtime,133200,2026-09-03T22:24:12Z,wfurt
@@ -13693,6 +13708,7 @@ dotnet/runtime,133223,2026-09-04T08:48:25Z,akoeplinger
 dotnet/runtime,133226,2026-09-06T18:43:00Z,jkotas
 dotnet/runtime,133227,2026-09-04T20:42:36Z,JulieLeeMSFT
 dotnet/runtime,133230,2026-09-05T21:17:06Z,AustinWise
+dotnet/runtime,133235,2026-09-07T19:34:08Z,jkotas
 dotnet/runtime,133248,2026-09-04T17:20:46Z,jkoritzinsky
 dotnet/runtime,133249,2026-09-05T01:39:41Z,artl93
 dotnet/runtime,133250,2026-09-04T22:02:38Z,bartonjs
@@ -13711,6 +13727,16 @@ dotnet/runtime,133309,2026-09-05T18:19:42Z,jkoritzinsky
 dotnet/runtime,133310,2026-09-05T21:57:55Z,jkotas
 dotnet/runtime,133312,2026-09-05T21:55:21Z,jkotas
 dotnet/runtime,133313,2026-09-06T02:51:37Z,lewing
+dotnet/runtime,133340,2026-09-07T14:14:18Z,akoeplinger
+dotnet/runtime,133341,2026-09-07T18:48:42Z,jkotas
+dotnet/runtime,133351,2026-09-07T13:39:48Z,jkotas
+dotnet/runtime,133360,2026-09-08T07:28:05Z,eiriktsarpalis
+dotnet/runtime,133361,2026-09-07T15:50:18Z,MihaZupan
+dotnet/runtime,133367,2026-09-07T19:16:35Z,lewing
+dotnet/runtime,133377,2026-09-07T20:29:15Z,lewing
+dotnet/runtime,133379,2026-09-07T21:17:53Z,AaronRobinsonMSFT
+dotnet/runtime,133380,2026-09-07T22:28:00Z,janvorli
+dotnet/runtime,133393,2026-09-08T05:13:03Z,huoyaoyuan
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -17415,6 +17441,7 @@ microsoft/aspire,19936,2026-09-04T16:31:31Z,sebastienros
 microsoft/aspire,19939,2026-09-04T19:24:16Z,radical
 microsoft/aspire,19961,2026-09-05T15:00:02Z,aradalvand
 microsoft/aspire,19963,2026-09-06T17:01:15Z,JamesNK
+microsoft/aspire,19973,2026-09-07T22:02:27Z,microsoft-github-policy-service[bot]
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
@@ -20001,4 +20028,5 @@ microsoft/vcpkg,53761,2026-09-04T06:03:51Z,vicroms
 microsoft/vcpkg,53762,2026-09-04T05:58:26Z,vicroms
 microsoft/vcpkg,53769,2026-09-04T17:52:13Z,j7nw4r
 microsoft/vcpkg,53787,2026-09-05T01:50:43Z,microsoft-github-policy-service[bot]
+microsoft/vcpkg,53789,2026-09-07T13:33:16Z,pepone
 microsoft/vcpkg,53799,2026-09-06T18:50:24Z,microsoft-github-policy-service[bot]
