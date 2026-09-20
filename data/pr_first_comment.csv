@@ -1674,6 +1674,7 @@ Azure/azure-sdk-for-js,40000,2026-09-17T09:31:20Z,kazrael2119
 Azure/azure-sdk-for-js,40001,2026-09-17T09:29:44Z,kazrael2119
 Azure/azure-sdk-for-js,40005,2026-09-17T09:30:06Z,kazrael2119
 Azure/azure-sdk-for-js,40006,2026-09-17T06:32:50Z,qiaozha
+Azure/azure-sdk-for-js,40017,2026-09-20T02:51:57Z,kazrael2119
 dotnet/maui,12910,2025-04-08T14:21:39Z,jfversluis
 dotnet/maui,13114,2025-08-04T18:57:17Z,PureWeen
 dotnet/maui,13725,2025-08-04T18:57:23Z,PureWeen
@@ -14183,6 +14184,9 @@ dotnet/runtime,134220,2026-09-18T21:04:13Z,jkotas
 dotnet/runtime,134224,2026-09-18T21:11:44Z,jkotas
 dotnet/runtime,134226,2026-09-18T21:35:33Z,davidwrighton
 dotnet/runtime,134229,2026-09-18T23:02:44Z,tarekgh
+dotnet/runtime,134259,2026-09-19T22:26:39Z,bartonjs
+dotnet/runtime,134291,2026-09-20T02:42:04Z,jkotas
+dotnet/runtime,134297,2026-09-20T04:53:29Z,jkotas
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -17973,6 +17977,7 @@ microsoft/aspire,20197,2026-09-18T07:23:34Z,aspire-repo-bot[bot]
 microsoft/aspire,20199,2026-09-17T16:57:04Z,ellahathaway
 microsoft/aspire,20203,2026-09-17T21:25:20Z,aspire-repo-bot[bot]
 microsoft/aspire,20209,2026-09-18T13:26:26Z,aspire-repo-bot[bot]
+microsoft/aspire,20210,2026-09-20T05:11:13Z,davidfowl
 microsoft/aspire,20211,2026-09-18T03:57:15Z,aspire-repo-bot[bot]
 microsoft/aspire,20214,2026-09-18T22:05:59Z,karolz-ms
 microsoft/aspire,20220,2026-09-18T06:08:52Z,aspire-repo-bot[bot]
