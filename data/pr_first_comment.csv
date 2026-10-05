@@ -7667,6 +7667,7 @@ dotnet/roslyn,85893,2026-10-02T16:58:35Z,333fred
 dotnet/roslyn,85896,2026-10-02T18:42:21Z,333fred
 dotnet/roslyn,85898,2026-10-02T22:08:03Z,333fred
 dotnet/roslyn,85904,2026-10-02T22:56:52Z,RikkiGibson
+dotnet/roslyn,85908,2026-10-05T09:05:23Z,jjonescz
 dotnet/runtime,76017,2025-04-02T02:46:41Z,amanasifkhalid
 dotnet/runtime,78746,2026-06-12T15:28:23Z,jkotas
 dotnet/runtime,82765,2025-03-05T13:52:54Z,stephentoub
@@ -14595,6 +14596,8 @@ dotnet/runtime,135177,2026-10-04T02:22:17Z,jkotas
 dotnet/runtime,135179,2026-10-04T05:42:21Z,jkotas
 dotnet/runtime,135180,2026-10-04T03:35:16Z,jkotas
 dotnet/runtime,135181,2026-10-04T04:29:49Z,jkotas
+dotnet/runtime,135182,2026-10-04T21:13:23Z,EgorBo
+dotnet/runtime,135184,2026-10-04T16:44:22Z,EgorBo
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -18263,6 +18266,7 @@ microsoft/aspire,19682,2026-09-10T03:31:00Z,aspire-repo-bot[bot]
 microsoft/aspire,19684,2026-09-18T16:34:24Z,joperezr
 microsoft/aspire,19686,2026-08-27T17:56:41Z,joperezr
 microsoft/aspire,19698,2026-08-26T14:18:34Z,aspire-repo-bot[bot]
+microsoft/aspire,19707,2026-10-05T03:02:46Z,JamesNK
 microsoft/aspire,19716,2026-08-26T18:26:27Z,aspire-repo-bot[bot]
 microsoft/aspire,19718,2026-08-26T20:16:13Z,aspire-repo-bot[bot]
 microsoft/aspire,19719,2026-08-26T19:32:07Z,eerhardt
@@ -18536,6 +18540,7 @@ microsoft/aspire,20607,2026-09-30T16:32:49Z,aspire-repo-bot[bot]
 microsoft/aspire,20608,2026-09-30T18:24:05Z,aspire-repo-bot[bot]
 microsoft/aspire,20610,2026-10-01T19:26:24Z,github-advanced-security[bot]
 microsoft/aspire,20614,2026-09-30T18:01:17Z,eerhardt
+microsoft/aspire,20620,2026-10-04T23:28:12Z,mitchdenny
 microsoft/aspire,20622,2026-09-30T22:39:55Z,aspire-repo-bot[bot]
 microsoft/aspire,20623,2026-09-30T23:46:42Z,danegsta
 microsoft/aspire,20628,2026-10-01T15:21:38Z,aspire-repo-bot[bot]
@@ -18559,6 +18564,8 @@ microsoft/aspire,20699,2026-10-02T21:31:36Z,radical
 microsoft/aspire,20703,2026-10-03T18:52:43Z,aspire-repo-bot[bot]
 microsoft/aspire,20704,2026-10-03T08:21:35Z,aspire-repo-bot[bot]
 microsoft/aspire,20705,2026-10-03T17:49:50Z,radical
+microsoft/aspire,20721,2026-10-04T23:39:49Z,aspire-repo-bot[bot]
+microsoft/aspire,20722,2026-10-04T14:36:50Z,radical
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
@@ -21320,3 +21327,5 @@ microsoft/vcpkg,54250,2026-10-03T07:04:45Z,BillyONeal
 microsoft/vcpkg,54257,2026-10-03T07:35:26Z,BillyONeal
 microsoft/vcpkg,54259,2026-10-03T07:13:42Z,BillyONeal
 microsoft/vcpkg,54262,2026-10-03T07:51:10Z,BillyONeal
+microsoft/vcpkg,54300,2026-10-05T05:55:35Z,microsoft-github-policy-service[bot]
+microsoft/vcpkg,54303,2026-10-05T09:04:05Z,microsoft-github-policy-service[bot]
