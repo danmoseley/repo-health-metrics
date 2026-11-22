@@ -1934,6 +1934,7 @@ Azure/azure-sdk-for-js,40872,2026-11-20T06:56:47Z,kazrael2119
 Azure/azure-sdk-for-js,40873,2026-11-20T16:41:03Z,maorleger
 Azure/azure-sdk-for-js,40875,2026-11-20T05:33:12Z,azure-sdk-automation[bot]
 Azure/azure-sdk-for-js,40878,2026-11-20T20:01:43Z,maorleger
+Azure/azure-sdk-for-js,40881,2026-11-21T16:10:39Z,azure-sdk-automation[bot]
 dotnet/maui,12910,2025-04-08T14:21:39Z,jfversluis
 dotnet/maui,13114,2025-08-04T18:57:17Z,PureWeen
 dotnet/maui,13725,2025-08-04T18:57:23Z,PureWeen
@@ -6004,6 +6005,8 @@ dotnet/maui,40480,2026-11-20T14:50:32Z,kubaflo
 dotnet/maui,40481,2026-11-20T14:50:36Z,kubaflo
 dotnet/maui,40482,2026-11-20T15:51:35Z,kubaflo
 dotnet/maui,40483,2026-11-20T18:20:56Z,MauiBot
+dotnet/maui,40496,2026-11-22T02:04:26Z,kubaflo
+dotnet/maui,40499,2026-11-22T02:04:31Z,kubaflo
 dotnet/roslyn,3472,2026-06-16T12:24:08Z,hez2010
 dotnet/roslyn,22984,2026-08-20T21:24:45Z,benmvp
 dotnet/roslyn,24621,2025-03-12T19:25:48Z,IDisposable
@@ -16561,6 +16564,8 @@ dotnet/runtime,138055,2026-11-21T08:24:10Z,akoeplinger
 dotnet/runtime,138062,2026-11-21T04:22:09Z,jkoritzinsky
 dotnet/runtime,138066,2026-11-21T04:24:49Z,jkoritzinsky
 dotnet/runtime,138068,2026-11-21T05:21:33Z,jkotas
+dotnet/runtime,138070,2026-11-21T14:36:50Z,jkotas
+dotnet/runtime,138083,2026-11-21T23:06:04Z,jkotas
 microsoft/aspire,2858,2025-08-29T00:33:17Z,KirillOsenkov
 microsoft/aspire,5066,2025-03-04T04:03:34Z,danmoseley
 microsoft/aspire,5277,2025-03-04T04:04:00Z,danmoseley
@@ -21186,6 +21191,8 @@ microsoft/aspire,22478,2026-11-20T19:17:03Z,aspire-repo-bot[bot]
 microsoft/aspire,22482,2026-11-20T19:32:58Z,aspire-repo-bot[bot]
 microsoft/aspire,22487,2026-11-21T00:57:47Z,JamesNK
 microsoft/aspire,22495,2026-11-20T20:52:14Z,eerhardt
+microsoft/aspire,22529,2026-11-22T10:52:17Z,aspire-repo-bot[bot]
+microsoft/aspire,22530,2026-11-21T23:09:41Z,JamesNK
 microsoft/vcpkg,1948,2026-04-15T08:19:16Z,lotigara
 microsoft/vcpkg,15784,2025-05-06T23:18:51Z,Sjoeborg
 microsoft/vcpkg,19740,2025-08-06T09:45:23Z,dg0yt
